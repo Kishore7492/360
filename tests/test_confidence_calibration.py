@@ -237,7 +237,7 @@ class TestAIScorerEnhancedRanges:
         )
         adj = result.ai_adjustment
         assert adj > 3.0, f"Expected adjustment > 3.0 with 0.90 win rate, got {adj}"
-        assert adj <= 10.0
+        assert adj <= 8.0, f"Win-rate boost should cap at 8.0, got {adj}"
 
     def test_low_win_rate_penalty_up_to_8(self):
         scorer = AIConfidenceScorer()
@@ -248,7 +248,7 @@ class TestAIScorerEnhancedRanges:
         )
         adj = result.ai_adjustment
         assert adj < -3.0, f"Expected adjustment < -3.0 with 0.10 win rate, got {adj}"
-        assert adj >= -10.0
+        assert adj >= -8.0, f"Win-rate penalty should cap at -8.0, got {adj}"
 
     def test_extreme_volatility_penalty_up_to_5(self):
         scorer = AIConfidenceScorer()

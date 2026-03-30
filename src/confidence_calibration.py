@@ -44,6 +44,12 @@ _HARDCODED_CURVE: Dict[int, float] = {
 
 _CURVE_KEYS = sorted(_HARDCODED_CURVE.keys())
 
+_CONFIDENCE_SCALE = 100.0
+_ALPHA_START = 0.8
+_ALPHA_MIN = 0.3
+_ALPHA_DECAY_RANGE = _ALPHA_START - _ALPHA_MIN  # 0.5
+_DECAY_SAMPLES = 200.0
+
 
 def wilson_lower_bound(wins: int, total: int, z: float = 1.96) -> float:
     """Compute the lower bound of a Wilson score confidence interval.
@@ -138,10 +144,9 @@ class ConfidenceCalibrator:
         """
         n = self._global_stats.total
         if n < self._min_samples:
-            return 0.8
+            return _ALPHA_START
         excess = n - self._min_samples
-        alpha = 0.8 - 0.5 * min(excess / 200.0, 1.0)
-        return alpha
+        return _ALPHA_START - _ALPHA_DECAY_RANGE * min(excess / _DECAY_SAMPLES, 1.0)
 
     def calibrate(self, raw_confidence: float, channel: str = "") -> float:
         """Return a calibrated confidence score.
@@ -173,7 +178,7 @@ class ConfidenceCalibrator:
                 if ch_stats and ch_stats.total >= 3:
                     bucket_win_rate = ch_stats.win_rate
 
-        calibrated = raw_confidence * alpha + bucket_win_rate * 100.0 * (1.0 - alpha)
+        calibrated = raw_confidence * alpha + bucket_win_rate * _CONFIDENCE_SCALE * (1.0 - alpha)
         calibrated = max(0.0, min(100.0, calibrated))
 
         log.debug(
