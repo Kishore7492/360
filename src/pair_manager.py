@@ -837,15 +837,19 @@ class PairManager:
         count = count or TOP50_FUTURES_COUNT
         now = time.monotonic()
         last_refresh = getattr(self, "_top50_last_refresh", 0.0)
-        if not force and (now - last_refresh) < TOP50_UPDATE_INTERVAL_SECONDS:
+        # Always fetch when the cache is empty (first call) regardless of
+        # the interval guard.  On a freshly booted system time.monotonic()
+        # can be less than TOP50_UPDATE_INTERVAL_SECONDS, which would cause
+        # the guard to return the empty cache and leave the engine with 0 pairs.
+        if not force and self._top50_futures_cache and (now - last_refresh) < TOP50_UPDATE_INTERVAL_SECONDS:
             log.debug(
                 "refresh_top50_futures: interval not elapsed (%.0fs < %ds), "
                 "returning cached list of %d pairs",
                 now - last_refresh,
                 TOP50_UPDATE_INTERVAL_SECONDS,
-                len(getattr(self, "_top50_futures_cache", [])),
+                len(self._top50_futures_cache),
             )
-            return list(getattr(self, "_top50_futures_cache", []))
+            return list(self._top50_futures_cache)
 
         futures_pairs = await self.fetch_top_futures_pairs(limit=count)
         self._top50_futures_cache = [p.symbol for p in futures_pairs[:count]]

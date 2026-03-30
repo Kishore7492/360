@@ -238,12 +238,12 @@ class TimeframeSeed:
 
 
 SEED_TIMEFRAMES: List[TimeframeSeed] = [
-    TimeframeSeed("1m", 200),
-    TimeframeSeed("5m", 200),
-    TimeframeSeed("15m", 200),
-    TimeframeSeed("1h", 200),
-    TimeframeSeed("4h", 200),
-    TimeframeSeed("1d", 200),
+    TimeframeSeed("1m", 500),
+    TimeframeSeed("5m", 500),
+    TimeframeSeed("15m", 500),
+    TimeframeSeed("1h", 500),
+    TimeframeSeed("4h", 500),
+    TimeframeSeed("1d", 500),
 ]
 SEED_TICK_LIMIT: int = 5000  # recent trades
 
