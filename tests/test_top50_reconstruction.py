@@ -81,6 +81,31 @@ class TestTop50FuturesPairManager:
         assert result == ["BTCUSDT", "ETHUSDT"]
         fetch_mock.assert_not_called()
 
+    async def test_refresh_top50_futures_fetches_when_cache_empty(self):
+        """First call must always fetch even when the interval guard would fire.
+
+        On a freshly booted system time.monotonic() can be smaller than
+        TOP50_UPDATE_INTERVAL_SECONDS, which previously caused the guard to
+        return the empty cache and leave the engine with 0 pairs.
+        """
+        pm = PairManager()
+        # Simulate a freshly booted system where monotonic time is low.
+        # _top50_futures_cache is empty (default) and _top50_last_refresh is 0.0
+        assert pm._top50_futures_cache == []
+        assert pm._top50_last_refresh == 0.0
+
+        mock_pairs = [
+            _make_futures_pair(f"SYM{i}USDT", volume=(100 - i) * 1_000_000)
+            for i in range(60)
+        ]
+        pm.fetch_top_futures_pairs = AsyncMock(return_value=mock_pairs)
+
+        # Call WITHOUT force — should still fetch because cache is empty
+        result = await pm.refresh_top50_futures(count=50)
+        assert len(result) == 50
+        assert result[0] == "SYM0USDT"
+        pm.fetch_top_futures_pairs.assert_called_once()
+
     async def test_refresh_top50_futures_fetches_when_stale(self):
         pm = PairManager()
         pm._top50_last_refresh = 0.0  # force stale by setting to epoch-relative zero
