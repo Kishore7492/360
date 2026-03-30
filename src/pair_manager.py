@@ -836,15 +836,16 @@ class PairManager:
         """
         count = count or TOP50_FUTURES_COUNT
         now = time.monotonic()
-        if not force and (now - self._top50_last_refresh) < TOP50_UPDATE_INTERVAL_SECONDS:
+        last_refresh = getattr(self, "_top50_last_refresh", 0.0)
+        if not force and (now - last_refresh) < TOP50_UPDATE_INTERVAL_SECONDS:
             log.debug(
                 "refresh_top50_futures: interval not elapsed (%.0fs < %ds), "
                 "returning cached list of %d pairs",
-                now - self._top50_last_refresh,
+                now - last_refresh,
                 TOP50_UPDATE_INTERVAL_SECONDS,
-                len(self._top50_futures_cache),
+                len(getattr(self, "_top50_futures_cache", [])),
             )
-            return list(self._top50_futures_cache)
+            return list(getattr(self, "_top50_futures_cache", []))
 
         futures_pairs = await self.fetch_top_futures_pairs(limit=count)
         self._top50_futures_cache = [p.symbol for p in futures_pairs[:count]]

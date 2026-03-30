@@ -83,7 +83,7 @@ class TestTop50FuturesPairManager:
 
     async def test_refresh_top50_futures_fetches_when_stale(self):
         pm = PairManager()
-        pm._top50_last_refresh = 0.0  # never refreshed
+        pm._top50_last_refresh = 0.0  # force stale by setting to epoch-relative zero
 
         mock_pairs = [
             _make_futures_pair(f"SYM{i}USDT", volume=(100 - i) * 1_000_000)
@@ -91,7 +91,7 @@ class TestTop50FuturesPairManager:
         ]
         pm.fetch_top_futures_pairs = AsyncMock(return_value=mock_pairs)
 
-        result = await pm.refresh_top50_futures(count=50)
+        result = await pm.refresh_top50_futures(count=50, force=True)
         assert len(result) == 50
         assert result[0] == "SYM0USDT"
 
@@ -113,7 +113,7 @@ class TestTop50FuturesPairManager:
         mock_pairs = [_make_futures_pair("BTCUSDT", volume=1_000_000_000)]
         pm.fetch_top_futures_pairs = AsyncMock(return_value=mock_pairs)
 
-        await pm.refresh_top50_futures(count=1)
+        await pm.refresh_top50_futures(count=1, force=True)
         assert "BTCUSDT" in pm.pairs
         assert pm.pairs["BTCUSDT"].tier == PairTier.TIER1
 
@@ -125,7 +125,7 @@ class TestTop50FuturesPairManager:
         updated = _make_futures_pair("BTCUSDT", volume=1_000_000_000)
         pm.fetch_top_futures_pairs = AsyncMock(return_value=[updated])
 
-        await pm.refresh_top50_futures(count=1)
+        await pm.refresh_top50_futures(count=1, force=True)
         assert pm.pairs["BTCUSDT"].volume_24h_usd == 1_000_000_000
 
 

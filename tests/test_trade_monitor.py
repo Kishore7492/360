@@ -112,10 +112,10 @@ class TestMinimumLifespan:
         assert sig.current_price == pytest.approx(29850.0)
 
     @pytest.mark.asyncio
-    async def test_swing_min_lifespan_is_longer(self):
-        """A SWING signal at age=15s (< 300s min) should NOT trigger SL."""
+    async def test_scalp_fvg_min_lifespan_is_respected(self):
+        """A SCALP_FVG signal at age=15s (< 180s min) should NOT trigger SL."""
         sig = _make_signal(
-            channel="360_SWING",
+            channel="360_SCALP_FVG",
             direction=Direction.LONG,
             entry=30000.0,
             stop_loss=29850.0,
