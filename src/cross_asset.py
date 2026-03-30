@@ -71,6 +71,13 @@ HIGH_VOLATILITY_LABELS: frozenset[str] = frozenset({
     "VOLATILE",
 })
 
+# ---------------------------------------------------------------------------
+# Graduated correlation thresholds for cross-asset gating  (Rec 7)
+# ---------------------------------------------------------------------------
+_CORR_VERY_LOW: float = 0.2   # Below this: pair is independent, no penalty
+_CORR_LOW: float = 0.5        # Below this: minor penalty suggested
+_CORR_HIGH: float = 0.8       # At or above this: hard block
+
 #: Symbols treated as "major" assets that can affect altcoins.
 #: Extend this set as needed (e.g. add "BNBUSDT" for BNB-chain tokens).
 DEFAULT_MAJOR_SYMBOLS: frozenset[str] = frozenset({"BTCUSDT", "ETHUSDT"})
@@ -190,10 +197,10 @@ def check_cross_asset_gate(
             # Graduated gating when correlation is known
             if btc_correlation is not None:
                 abs_corr = abs(btc_correlation)
-                if abs_corr < 0.2:
+                if abs_corr < _CORR_VERY_LOW:
                     # Very low correlation – pair is independent
                     continue
-                if abs_corr < 0.5:
+                if abs_corr < _CORR_LOW:
                     # Low-medium correlation – allow with penalty note
                     return (
                         True,
@@ -202,7 +209,7 @@ def check_cross_asset_gate(
                             f"(corr={btc_correlation:.2f}) – minor penalty suggested"
                         ),
                     )
-                if abs_corr < 0.8:
+                if abs_corr < _CORR_HIGH:
                     # Medium-high correlation – allow with strong penalty note
                     return (
                         True,
@@ -237,7 +244,7 @@ def check_cross_asset_gate(
                 continue
             if state.trend.upper() in BULLISH_TREND_LABELS:
                 # Graduated gating for SHORTs as well
-                if btc_correlation is not None and abs(btc_correlation) < 0.5:
+                if btc_correlation is not None and abs(btc_correlation) < _CORR_LOW:
                     continue
                 return (
                     False,

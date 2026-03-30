@@ -12,6 +12,11 @@ from src.channels.signal_params import lookup_signal_params
 from src.dca import compute_dca_zone
 from src.filters import check_spread, check_volume
 from src.smc import Direction
+
+# Default RSI and BB values used when no PairProfile is available.
+_DEFAULT_RSI_OB: float = 75.0
+_DEFAULT_RSI_OS: float = 25.0
+_DEFAULT_BB_TOUCH_PCT: float = 0.002
 from src.structural_levels import (
     find_round_numbers,
     find_structural_sl,
@@ -240,9 +245,9 @@ class BaseChannel:
         spread_max = cfg.spread_max
         min_volume = cfg.min_volume
         adx_min = cfg.adx_min
-        rsi_ob = 75.0
-        rsi_os = 25.0
-        bb_touch_pct = 0.002
+        rsi_ob = _DEFAULT_RSI_OB
+        rsi_os = _DEFAULT_RSI_OS
+        bb_touch_pct = _DEFAULT_BB_TOUCH_PCT
 
         if profile is not None:
             spread_max *= profile.spread_max_mult

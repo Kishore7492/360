@@ -114,11 +114,23 @@ def check_correlation_limit(
 # ---------------------------------------------------------------------------
 
 # Default window sizes for rolling correlation.
-_SHORT_WINDOW: int = int(os.getenv("CORR_SHORT_WINDOW", "50"))
-_LONG_WINDOW: int = int(os.getenv("CORR_LONG_WINDOW", "200"))
+_SHORT_WINDOW: int = 50
+_LONG_WINDOW: int = 200
+try:
+    _SHORT_WINDOW = int(os.getenv("CORR_SHORT_WINDOW", "50"))
+    _LONG_WINDOW = int(os.getenv("CORR_LONG_WINDOW", "200"))
+except (ValueError, TypeError):
+    log.warning("Invalid CORR_SHORT_WINDOW/CORR_LONG_WINDOW env var; using defaults")
 
 # Maximum lags (candles) checked for cross-correlation lead/lag analysis.
-_MAX_LAG: int = int(os.getenv("CORR_MAX_LAG", "5"))
+_MAX_LAG: int = 5
+try:
+    _MAX_LAG = int(os.getenv("CORR_MAX_LAG", "5"))
+except (ValueError, TypeError):
+    log.warning("Invalid CORR_MAX_LAG env var; using default")
+
+# Minimum number of data points required for correlation calculation.
+_MIN_DATA_POINTS: int = 5
 
 
 def rolling_pearson(
@@ -134,7 +146,7 @@ def rolling_pearson(
     variance.
     """
     min_len = min(len(x), len(y))
-    if min_len < 5:
+    if min_len < _MIN_DATA_POINTS:
         return 0.0
 
     n = min(window, min_len)
@@ -247,6 +259,14 @@ def detect_lead_lag(
 # ---------------------------------------------------------------------------
 
 
+# Correlation penalty thresholds and ranges for graduated penalties.
+_PENALTY_HIGH_CORR: float = 0.8     # Above this: maximum penalty
+_PENALTY_MED_CORR: float = 0.5      # Above this: partial penalty
+_PENALTY_LOW_CORR: float = 0.2      # Below this: no penalty
+_PENALTY_MAX: float = -15.0          # Penalty at high correlation
+_PENALTY_MID: float = -5.0           # Penalty at medium correlation
+
+
 def correlation_confidence_penalty(btc_correlation: float) -> float:
     """Return a confidence penalty based on dynamic BTC correlation.
 
@@ -263,12 +283,14 @@ def correlation_confidence_penalty(btc_correlation: float) -> float:
     Penalty as a **non-positive** float (0.0 means no penalty).
     """
     abs_corr = abs(btc_correlation)
-    if abs_corr >= 0.8:
-        return -15.0
-    if abs_corr >= 0.5:
-        # Linear interpolation: -5 at 0.5, -15 at 0.8
-        return -5.0 - (abs_corr - 0.5) / 0.3 * 10.0
-    if abs_corr >= 0.2:
-        # Linear interpolation: 0 at 0.2, -5 at 0.5
-        return -(abs_corr - 0.2) / 0.3 * 5.0
+    if abs_corr >= _PENALTY_HIGH_CORR:
+        return _PENALTY_MAX
+    if abs_corr >= _PENALTY_MED_CORR:
+        # Linear interpolation: _PENALTY_MID at 0.5, _PENALTY_MAX at 0.8
+        frac = (abs_corr - _PENALTY_MED_CORR) / (_PENALTY_HIGH_CORR - _PENALTY_MED_CORR)
+        return _PENALTY_MID + frac * (_PENALTY_MAX - _PENALTY_MID)
+    if abs_corr >= _PENALTY_LOW_CORR:
+        # Linear interpolation: 0 at 0.2, _PENALTY_MID at 0.5
+        frac = (abs_corr - _PENALTY_LOW_CORR) / (_PENALTY_MED_CORR - _PENALTY_LOW_CORR)
+        return frac * _PENALTY_MID
     return 0.0

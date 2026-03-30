@@ -134,6 +134,11 @@ class MarketRegimeDetector:
         self._regime_dwell_count: int = 0
         # Track the last timeframe used; hysteresis resets when it changes.
         self._last_timeframe: Optional[str] = None
+        # Regime transition tracking state  (Rec 3)
+        self._ctx_prev_stable: str = ""
+        self._ctx_transition_age: int = 0
+        self._ctx_prev_before_change: str = ""
+        self._ctx_last_transition: str = ""
 
     def classify(
         self,
@@ -378,7 +383,7 @@ class MarketRegimeDetector:
         transition_age = 0
         current_label = result.regime.value
 
-        if hasattr(self, "_ctx_prev_stable") and self._ctx_prev_stable:
+        if self._ctx_prev_stable:
             if self._ctx_prev_stable != current_label:
                 # A transition occurred
                 prev_label = self._ctx_prev_stable
@@ -386,17 +391,14 @@ class MarketRegimeDetector:
                 self._ctx_transition_age = 0
                 self._ctx_prev_stable = current_label
             else:
-                prev_label = getattr(self, "_ctx_prev_before_change", "")
-                transition_type = getattr(self, "_ctx_last_transition", "")
-                self._ctx_transition_age = getattr(self, "_ctx_transition_age", 0) + 1
+                prev_label = self._ctx_prev_before_change
+                transition_type = self._ctx_last_transition
+                self._ctx_transition_age += 1
             transition_age = self._ctx_transition_age
             self._ctx_prev_before_change = prev_label
             self._ctx_last_transition = transition_type
         else:
             self._ctx_prev_stable = current_label
-            self._ctx_transition_age = 0
-            self._ctx_prev_before_change = ""
-            self._ctx_last_transition = ""
 
         return RegimeContext(
             label=current_label,
