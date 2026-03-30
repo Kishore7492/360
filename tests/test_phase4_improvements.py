@@ -130,15 +130,22 @@ class TestRegimeTransition:
     def test_get_last_transition_returns_dict(self):
         det = RegimeTransitionDetector()
         det.record_regime("BTCUSDT", "QUIET")
+        det.record_regime("BTCUSDT", "TRENDING_UP")
         info = det.get_last_transition("BTCUSDT")
         assert info is not None
-        assert "from_regime" in info
-        assert "seconds_ago" in info
         assert info["from_regime"] == "QUIET"
+        assert info["to_regime"] == "TRENDING_UP"
+        assert "seconds_ago" in info
 
     def test_get_last_transition_none_unknown_symbol(self):
         det = RegimeTransitionDetector()
         assert det.get_last_transition("UNKNOWN") is None
+
+    def test_get_last_transition_none_no_transition(self):
+        """Only one regime recorded — no transition yet."""
+        det = RegimeTransitionDetector()
+        det.record_regime("BTCUSDT", "QUIET")
+        assert det.get_last_transition("BTCUSDT") is None
 
     def test_ranging_to_trending_down_boost(self):
         det = RegimeTransitionDetector()

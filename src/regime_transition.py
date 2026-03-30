@@ -31,10 +31,16 @@ class RegimeTransitionDetector:
         self._window = transition_window_seconds
         # symbol → (regime, timestamp_mono)
         self._last_regime: Dict[str, Tuple[str, float]] = {}
+        # symbol → (from_regime, to_regime, timestamp_mono)
+        self._last_transition: Dict[str, Tuple[str, str, float]] = {}
 
     def record_regime(self, symbol: str, regime: str) -> None:
         """Record the current regime for *symbol* with a monotonic timestamp."""
-        self._last_regime[symbol] = (regime, time.monotonic())
+        prev = self._last_regime.get(symbol)
+        now = time.monotonic()
+        if prev is not None and prev[0] != regime:
+            self._last_transition[symbol] = (prev[0], regime, now)
+        self._last_regime[symbol] = (regime, now)
 
     def get_transition_adjustment(self, symbol: str, current_regime: str) -> float:
         """Return a confidence adjustment for a recent regime transition.
@@ -57,20 +63,20 @@ class RegimeTransitionDetector:
         return _TRANSITION_ADJUSTMENTS.get((prev_regime, current_regime), 0.0)
 
     def get_last_transition(self, symbol: str) -> Optional[Dict]:
-        """Return details of the last recorded regime or ``None``.
+        """Return details of the last regime transition or ``None``.
 
         The returned dict contains ``from_regime``, ``to_regime``, and
-        ``seconds_ago``.  If only one regime has been recorded (no
-        transition yet), returns ``None``.
+        ``seconds_ago``.  Returns ``None`` if no transition has been
+        recorded for *symbol*.
         """
-        prev = self._last_regime.get(symbol)
-        if prev is None:
+        entry = self._last_transition.get(symbol)
+        if entry is None:
             return None
 
-        prev_regime, prev_ts = prev
-        seconds_ago = time.monotonic() - prev_ts
+        from_regime, to_regime, ts = entry
+        seconds_ago = time.monotonic() - ts
         return {
-            "from_regime": prev_regime,
-            "to_regime": prev_regime,  # same until next record
+            "from_regime": from_regime,
+            "to_regime": to_regime,
             "seconds_ago": seconds_ago,
         }
