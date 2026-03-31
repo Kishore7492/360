@@ -42,6 +42,9 @@ _QUALITY_ACCEPTABLE_HIT_RATE = 45.0
 _QUALITY_WEAK_HIT_RATE = 35.0
 _QUALITY_CRITICAL_DD = 15.0
 
+# Default consistency trend when data is insufficient
+_DEFAULT_CONSISTENCY_TREND = "STABLE"
+
 # Minimum signals needed for pair quality to be meaningful
 _MIN_SIGNALS_FOR_QUALITY = 5
 
@@ -261,7 +264,7 @@ def compute_pair_signal_quality(
     consistency = tracker.get_pair_consistency(symbol, window_days=window_days)
     quality.consistency_score = 100.0 - consistency.get("std_wr", 0.0) * 2.0
     quality.consistency_score = max(0.0, min(100.0, quality.consistency_score))
-    quality.consistency_trend = consistency.get("trend", "STABLE")
+    quality.consistency_trend = consistency.get("trend", _DEFAULT_CONSISTENCY_TREND)
 
     # Quality classification
     weak_areas: List[str] = []
