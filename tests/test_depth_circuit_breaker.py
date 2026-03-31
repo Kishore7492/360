@@ -85,6 +85,8 @@ class TestDepthCircuitBreakerConcurrency:
         # coroutines should detect the open breaker on their next retry
         # attempt and return immediately.  Before the fix, the counter would
         # climb to threshold + number_of_concurrent_requests.
+        # Allow +1 because one coroutine can be mid-timeout concurrently with
+        # the one that trips the breaker (they share the same event-loop tick).
         assert client._depth_consecutive_timeouts <= DEPTH_CIRCUIT_BREAKER_THRESHOLD + 1
         assert client._depth_circuit_open_until > time.monotonic()
 
