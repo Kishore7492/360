@@ -15,6 +15,21 @@ Candlestick reversal/continuation patterns (PR_05):
 * **Morning Star / Evening Star** — 3-bar reversal (LONG / SHORT, +10 pts)
 * **Three White Soldiers / Three Black Crows** — continuation (LONG / SHORT, +7 pts)
 
+Harmonic patterns:
+
+* **Gartley** — bullish/bearish harmonic (X-A-B-C-D with 61.8/78.6 retracements)
+* **Butterfly** — bullish/bearish harmonic (X-A-B-C-D with 78.6/127–162 extension)
+
+Structural patterns:
+
+* **Head & Shoulders / Inverse H&S** — three-peak/trough reversal
+* **Rising Wedge** — converging upward trendlines (bearish)
+* **Falling Wedge** — converging downward trendlines (bullish)
+
+Scoring:
+
+* **score_candlestick_patterns** — composite score across all candlestick detectors
+
 All functions return ``None`` when the pattern is not detected, or a ``dict``
 describing the pattern when it is.  No I/O, pure-compute.
 
@@ -718,3 +733,647 @@ def pattern_confidence_bonus(patterns: List[Dict], direction: str) -> float:
                 bonus += conf * 2.0
 
     return round(max(0.0, min(bonus, 5.0)), 2)
+
+
+# ---------------------------------------------------------------------------
+# Swing-point helpers (shared by harmonic & structural patterns)
+# ---------------------------------------------------------------------------
+
+def _find_swing_highs(high: NDArray, order: int = 5) -> List[int]:
+    """Return indices of swing highs (local maxima with *order* bars on each side)."""
+    arr = np.asarray(high, dtype=np.float64).ravel()
+    swings: List[int] = []
+    for i in range(order, len(arr) - order):
+        if all(arr[i] >= arr[i - j] for j in range(1, order + 1)) and all(
+            arr[i] >= arr[i + j] for j in range(1, order + 1)
+        ):
+            swings.append(i)
+    return swings
+
+
+def _find_swing_lows(low: NDArray, order: int = 5) -> List[int]:
+    """Return indices of swing lows (local minima with *order* bars on each side)."""
+    arr = np.asarray(low, dtype=np.float64).ravel()
+    swings: List[int] = []
+    for i in range(order, len(arr) - order):
+        if all(arr[i] <= arr[i - j] for j in range(1, order + 1)) and all(
+            arr[i] <= arr[i + j] for j in range(1, order + 1)
+        ):
+            swings.append(i)
+    return swings
+
+
+def _merge_swing_points(
+    high: NDArray, low: NDArray, order: int = 5,
+) -> List[tuple]:
+    """Return swing points as ``(index, price, 'H'|'L')`` sorted by index."""
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    points: List[tuple] = []
+    for i in _find_swing_highs(h, order):
+        points.append((i, float(h[i]), "H"))
+    for i in _find_swing_lows(lo, order):
+        points.append((i, float(lo[i]), "L"))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+def _ratio_within(actual: float, expected: float, tolerance: float = 0.05) -> bool:
+    """Check if *actual* ratio is within ±*tolerance* of *expected*."""
+    return abs(actual - expected) <= tolerance
+
+
+def _ratio_in_range(
+    actual: float, lo: float, hi: float, tolerance: float = 0.05,
+) -> bool:
+    """Check if *actual* ratio is within [lo − tol, hi + tol]."""
+    return (lo - tolerance) <= actual <= (hi + tolerance)
+
+
+# ---------------------------------------------------------------------------
+# Harmonic Patterns — Gartley
+# ---------------------------------------------------------------------------
+
+def detect_gartley_pattern(
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    lookback: int = 100,
+) -> Optional[Dict]:
+    """Detect a Gartley harmonic pattern (X-A-B-C-D).
+
+    Bullish Gartley
+    ~~~~~~~~~~~~~~~
+    XA leg moves **up**, then:
+    * AB retraces **61.8 %** of XA
+    * BC retraces **38.2 – 88.6 %** of AB
+    * CD completes at **78.6 %** retracement of XA
+
+    Bearish Gartley
+    ~~~~~~~~~~~~~~~~
+    XA leg moves **down**, same Fibonacci ratios inverted.
+
+    Parameters
+    ----------
+    high, low, close:
+        OHLCV price arrays (numpy).
+    lookback:
+        Number of most-recent candles to scan for the pattern.
+
+    Returns
+    -------
+    dict or None
+        ``{"pattern": "GARTLEY_BULLISH" | "GARTLEY_BEARISH",
+           "confidence": float, "completion_price": float,
+           "target": float, "stop_loss": float}``
+        or ``None`` if the pattern is not detected.
+    """
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    n = len(h)
+    if n < lookback:
+        return None
+
+    start = max(0, n - lookback)
+    h_w = h[start:]
+    lo_w = lo[start:]
+
+    swings = _merge_swing_points(h_w, lo_w, order=3)
+    if len(swings) < 5:
+        return None
+
+    tol = 0.05
+    best: Optional[Dict] = None
+
+    for i in range(len(swings) - 4):
+        X, A, B, C, D = swings[i : i + 5]
+
+        xa = A[1] - X[1]
+        if abs(xa) < 1e-9:
+            continue
+
+        ab = B[1] - A[1]
+        bc = C[1] - B[1]
+
+        ab_ratio = abs(ab / xa)
+        bc_ratio = abs(bc / ab) if abs(ab) > 1e-9 else 999.0
+        d_retracement = abs(D[1] - A[1]) / abs(xa)
+
+        if not _ratio_within(ab_ratio, 0.618, tol):
+            continue
+        if not _ratio_in_range(bc_ratio, 0.382, 0.886, tol):
+            continue
+        if not _ratio_within(d_retracement, 0.786, tol):
+            continue
+
+        # Directions must alternate
+        if xa > 0 and ab > 0:
+            continue
+        if xa < 0 and ab < 0:
+            continue
+
+        bullish = xa > 0
+        pattern_name = "GARTLEY_BULLISH" if bullish else "GARTLEY_BEARISH"
+
+        # Confidence based on how close ratios are to ideal
+        err_ab = abs(ab_ratio - 0.618) / 0.618
+        err_d = abs(d_retracement - 0.786) / 0.786
+        confidence = round(max(0.0, min(1.0 - (err_ab + err_d), 1.0)), 3)
+
+        completion = float(D[1])
+        ad_range = abs(A[1] - D[1])
+        if bullish:
+            target = float(completion + ad_range * 0.618)
+            stop_loss = float(X[1] - ad_range * 0.1)
+        else:
+            target = float(completion - ad_range * 0.618)
+            stop_loss = float(X[1] + ad_range * 0.1)
+
+        result = {
+            "pattern": pattern_name,
+            "confidence": confidence,
+            "completion_price": completion,
+            "target": round(target, 5),
+            "stop_loss": round(stop_loss, 5),
+        }
+        if best is None or confidence > best["confidence"]:
+            best = result
+
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Harmonic Patterns — Butterfly
+# ---------------------------------------------------------------------------
+
+def detect_butterfly_pattern(
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    lookback: int = 100,
+) -> Optional[Dict]:
+    """Detect a Butterfly harmonic pattern (X-A-B-C-D).
+
+    Bullish Butterfly
+    ~~~~~~~~~~~~~~~~~
+    XA leg moves **up**, then:
+    * AB retraces **78.6 %** of XA
+    * BC retraces **38.2 – 88.6 %** of AB
+    * CD extends **127.2 – 161.8 %** of XA (beyond X)
+
+    Bearish Butterfly
+    ~~~~~~~~~~~~~~~~~
+    XA leg moves **down**, same ratios inverted.
+
+    Parameters
+    ----------
+    high, low, close:
+        OHLCV price arrays (numpy).
+    lookback:
+        Number of most-recent candles to scan for the pattern.
+
+    Returns
+    -------
+    dict or None
+        ``{"pattern": "BUTTERFLY_BULLISH" | "BUTTERFLY_BEARISH",
+           "confidence": float, "completion_price": float,
+           "target": float, "stop_loss": float}``
+        or ``None`` if the pattern is not detected.
+    """
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    n = len(h)
+    if n < lookback:
+        return None
+
+    start = max(0, n - lookback)
+    h_w = h[start:]
+    lo_w = lo[start:]
+
+    swings = _merge_swing_points(h_w, lo_w, order=3)
+    if len(swings) < 5:
+        return None
+
+    tol = 0.05
+    best: Optional[Dict] = None
+
+    for i in range(len(swings) - 4):
+        X, A, B, C, D = swings[i : i + 5]
+
+        xa = A[1] - X[1]
+        if abs(xa) < 1e-9:
+            continue
+
+        ab = B[1] - A[1]
+        bc = C[1] - B[1]
+
+        ab_ratio = abs(ab / xa)
+        bc_ratio = abs(bc / ab) if abs(ab) > 1e-9 else 999.0
+        # CD extends beyond X: measure D relative to X as ratio of |XA|
+        d_extension = abs(D[1] - A[1]) / abs(xa)
+
+        if not _ratio_within(ab_ratio, 0.786, tol):
+            continue
+        if not _ratio_in_range(bc_ratio, 0.382, 0.886, tol):
+            continue
+        if not _ratio_in_range(d_extension, 1.272, 1.618, tol):
+            continue
+
+        if xa > 0 and ab > 0:
+            continue
+        if xa < 0 and ab < 0:
+            continue
+
+        bullish = xa > 0
+        pattern_name = "BUTTERFLY_BULLISH" if bullish else "BUTTERFLY_BEARISH"
+
+        err_ab = abs(ab_ratio - 0.786) / 0.786
+        mid_ext = (1.272 + 1.618) / 2.0
+        err_d = abs(d_extension - mid_ext) / mid_ext
+        confidence = round(max(0.0, min(1.0 - (err_ab + err_d), 1.0)), 3)
+
+        completion = float(D[1])
+        ad_range = abs(A[1] - D[1])
+        if bullish:
+            target = float(completion + ad_range * 0.618)
+            stop_loss = float(D[1] - ad_range * 0.1)
+        else:
+            target = float(completion - ad_range * 0.618)
+            stop_loss = float(D[1] + ad_range * 0.1)
+
+        result = {
+            "pattern": pattern_name,
+            "confidence": confidence,
+            "completion_price": completion,
+            "target": round(target, 5),
+            "stop_loss": round(stop_loss, 5),
+        }
+        if best is None or confidence > best["confidence"]:
+            best = result
+
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Candlestick Pattern Scoring
+# ---------------------------------------------------------------------------
+
+def score_candlestick_patterns(
+    open_arr: NDArray,
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    volume: Optional[NDArray] = None,
+) -> Dict[str, object]:
+    """Run ALL candlestick pattern detectors and produce a composite score.
+
+    Parameters
+    ----------
+    open_arr, high, low, close:
+        OHLC arrays (numpy or list).
+    volume:
+        Optional volume array.  When the pattern candle has above-average
+        volume the raw score is boosted by 20 %.
+
+    Returns
+    -------
+    dict
+        ``{"total_score": float, "patterns_detected": list[str],
+           "direction_bias": str, "pattern_count": int,
+           "strongest_pattern": str}``
+
+        *total_score* ranges from approximately −20 to +30.
+        *direction_bias* is ``"BULLISH"``, ``"BEARISH"``, or ``"NEUTRAL"``.
+    """
+    o = np.asarray(open_arr, dtype=np.float64).ravel()
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    c = np.asarray(close, dtype=np.float64).ravel()
+
+    # Score weights per pattern name
+    _WEIGHTS: Dict[str, float] = {
+        "MORNING_STAR": 10.0,
+        "EVENING_STAR": -10.0,
+        "BULLISH_ENGULFING": 8.0,
+        "BEARISH_ENGULFING": -8.0,
+        "THREE_WHITE_SOLDIERS": 7.0,
+        "THREE_BLACK_CROWS": -7.0,
+        "HAMMER": 6.0,
+        "SHOOTING_STAR": -6.0,
+        "DOJI": -5.0,
+    }
+
+    all_results: List[PatternResult] = detect_all_patterns(o, h, lo, c)
+
+    total_score = 0.0
+    patterns_detected: List[str] = []
+    strongest_name = ""
+    strongest_abs = 0.0
+
+    for pr in all_results:
+        weight = _WEIGHTS.get(pr.name, 0.0)
+        total_score += weight
+        patterns_detected.append(pr.name)
+        if abs(weight) > strongest_abs:
+            strongest_abs = abs(weight)
+            strongest_name = pr.name
+
+    # Volume boost: if volume provided and last candle is above average
+    if volume is not None and len(patterns_detected) > 0:
+        vol = np.asarray(volume, dtype=np.float64).ravel()
+        if len(vol) >= 2:
+            avg_vol = float(np.mean(vol))
+            if avg_vol > 0 and float(vol[-1]) > avg_vol:
+                total_score *= 1.2
+
+    total_score = round(max(-20.0, min(total_score, 30.0)), 2)
+
+    if total_score > 0:
+        direction_bias = "BULLISH"
+    elif total_score < 0:
+        direction_bias = "BEARISH"
+    else:
+        direction_bias = "NEUTRAL"
+
+    return {
+        "total_score": total_score,
+        "patterns_detected": patterns_detected,
+        "direction_bias": direction_bias,
+        "pattern_count": len(patterns_detected),
+        "strongest_pattern": strongest_name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Head & Shoulders
+# ---------------------------------------------------------------------------
+
+def detect_head_and_shoulders(
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    lookback: int = 60,
+) -> Optional[Dict]:
+    """Detect a head-and-shoulders or inverse head-and-shoulders pattern.
+
+    Classic H&S (bearish reversal)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Three peaks where the middle peak (head) is the highest and the two
+    outer peaks (shoulders) are lower and roughly equal.
+
+    Inverse H&S (bullish reversal)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Three troughs where the middle trough (head) is the lowest and the two
+    outer troughs (shoulders) are higher and roughly equal.
+
+    Parameters
+    ----------
+    high, low, close:
+        Price arrays (numpy).
+    lookback:
+        Number of most-recent candles to scan.
+
+    Returns
+    -------
+    dict or None
+        ``{"pattern": "HEAD_AND_SHOULDERS" | "INVERSE_HEAD_AND_SHOULDERS",
+           "neckline": float, "target": float, "confidence": float}``
+        or ``None`` if the pattern is not detected.
+    """
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    n = len(h)
+    if n < lookback:
+        return None
+
+    start = max(0, n - lookback)
+    h_w = h[start:]
+    lo_w = lo[start:]
+
+    best: Optional[Dict] = None
+
+    # --- Classic H&S (peaks) ---
+    peaks = _find_swing_highs(h_w, order=3)
+    if len(peaks) >= 3:
+        for i in range(len(peaks) - 2):
+            ls_idx, head_idx, rs_idx = peaks[i], peaks[i + 1], peaks[i + 2]
+            ls_price = float(h_w[ls_idx])
+            head_price = float(h_w[head_idx])
+            rs_price = float(h_w[rs_idx])
+
+            # Head must be higher than both shoulders
+            if head_price <= ls_price or head_price <= rs_price:
+                continue
+
+            # Shoulders roughly equal (within 5% of each other)
+            shoulder_avg = (ls_price + rs_price) / 2.0
+            if shoulder_avg <= 0:
+                continue
+            diff_pct = abs(ls_price - rs_price) / shoulder_avg
+            if diff_pct > 0.05:
+                continue
+
+            # Neckline: average of the troughs between shoulders and head
+            trough_left = float(np.min(lo_w[ls_idx:head_idx + 1]))
+            trough_right = float(np.min(lo_w[head_idx:rs_idx + 1]))
+            neckline = (trough_left + trough_right) / 2.0
+
+            head_height = head_price - neckline
+            target = neckline - head_height
+
+            confidence = round(max(0.0, min(1.0 - diff_pct, 1.0)), 3)
+            result = {
+                "pattern": "HEAD_AND_SHOULDERS",
+                "neckline": round(neckline, 5),
+                "target": round(target, 5),
+                "confidence": confidence,
+            }
+            if best is None or confidence > best["confidence"]:
+                best = result
+
+    # --- Inverse H&S (troughs) ---
+    troughs = _find_swing_lows(lo_w, order=3)
+    if len(troughs) >= 3:
+        for i in range(len(troughs) - 2):
+            ls_idx, head_idx, rs_idx = troughs[i], troughs[i + 1], troughs[i + 2]
+            ls_price = float(lo_w[ls_idx])
+            head_price = float(lo_w[head_idx])
+            rs_price = float(lo_w[rs_idx])
+
+            # Head must be lower than both shoulders
+            if head_price >= ls_price or head_price >= rs_price:
+                continue
+
+            shoulder_avg = (ls_price + rs_price) / 2.0
+            if shoulder_avg <= 0:
+                continue
+            diff_pct = abs(ls_price - rs_price) / shoulder_avg
+            if diff_pct > 0.05:
+                continue
+
+            peak_left = float(np.max(h_w[ls_idx:head_idx + 1]))
+            peak_right = float(np.max(h_w[head_idx:rs_idx + 1]))
+            neckline = (peak_left + peak_right) / 2.0
+
+            head_depth = neckline - head_price
+            target = neckline + head_depth
+
+            confidence = round(max(0.0, min(1.0 - diff_pct, 1.0)), 3)
+            result = {
+                "pattern": "INVERSE_HEAD_AND_SHOULDERS",
+                "neckline": round(neckline, 5),
+                "target": round(target, 5),
+                "confidence": confidence,
+            }
+            if best is None or confidence > best["confidence"]:
+                best = result
+
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Rising Wedge (bearish)
+# ---------------------------------------------------------------------------
+
+def detect_rising_wedge(
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    lookback: int = 40,
+) -> Optional[Dict]:
+    """Detect a rising-wedge pattern (bearish).
+
+    Both highs and lows are making higher highs / higher lows, but the
+    highs are rising **slower** than the lows — the two trendlines converge
+    upward.
+
+    Parameters
+    ----------
+    high, low, close:
+        Price arrays (numpy).
+    lookback:
+        Number of most-recent candles to analyse.
+
+    Returns
+    -------
+    dict or None
+        ``{"pattern": "RISING_WEDGE", "breakout_level": float,
+           "confidence": float}``
+        or ``None`` if the pattern is not detected.
+    """
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    n = len(h)
+    if n < lookback:
+        return None
+
+    h_w = h[-lookback:]
+    lo_w = lo[-lookback:]
+    x = np.arange(lookback, dtype=np.float64)
+
+    high_slope, high_intercept = np.polyfit(x, h_w, 1)
+    low_slope, low_intercept = np.polyfit(x, lo_w, 1)
+
+    mid_price = float(np.mean(np.concatenate([h_w, lo_w])))
+    if mid_price <= 0:
+        return None
+
+    norm_high = high_slope / mid_price * lookback
+    norm_low = low_slope / mid_price * lookback
+
+    # Both slopes must be positive (rising)
+    if norm_high <= 0 or norm_low <= 0:
+        return None
+
+    # Lows must rise faster than highs (converging)
+    if norm_low <= norm_high:
+        return None
+
+    # Both must be meaningfully rising
+    if norm_high < 0.002 or norm_low < 0.002:
+        return None
+
+    convergence = (norm_low - norm_high) / norm_low
+    confidence = round(max(0.0, min(convergence, 1.0)), 3)
+
+    breakout_level = float(low_intercept + low_slope * (lookback - 1))
+
+    return {
+        "pattern": "RISING_WEDGE",
+        "breakout_level": round(breakout_level, 5),
+        "confidence": confidence,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Falling Wedge (bullish)
+# ---------------------------------------------------------------------------
+
+def detect_falling_wedge(
+    high: NDArray,
+    low: NDArray,
+    close: NDArray,
+    lookback: int = 40,
+) -> Optional[Dict]:
+    """Detect a falling-wedge pattern (bullish).
+
+    Both highs and lows are making lower highs / lower lows, but the
+    lows are falling **slower** than the highs — the two trendlines
+    converge downward.
+
+    Parameters
+    ----------
+    high, low, close:
+        Price arrays (numpy).
+    lookback:
+        Number of most-recent candles to analyse.
+
+    Returns
+    -------
+    dict or None
+        ``{"pattern": "FALLING_WEDGE", "breakout_level": float,
+           "confidence": float}``
+        or ``None`` if the pattern is not detected.
+    """
+    h = np.asarray(high, dtype=np.float64).ravel()
+    lo = np.asarray(low, dtype=np.float64).ravel()
+    n = len(h)
+    if n < lookback:
+        return None
+
+    h_w = h[-lookback:]
+    lo_w = lo[-lookback:]
+    x = np.arange(lookback, dtype=np.float64)
+
+    high_slope, high_intercept = np.polyfit(x, h_w, 1)
+    low_slope, low_intercept = np.polyfit(x, lo_w, 1)
+
+    mid_price = float(np.mean(np.concatenate([h_w, lo_w])))
+    if mid_price <= 0:
+        return None
+
+    norm_high = high_slope / mid_price * lookback
+    norm_low = low_slope / mid_price * lookback
+
+    # Both slopes must be negative (falling)
+    if norm_high >= 0 or norm_low >= 0:
+        return None
+
+    # Highs must fall faster than lows (converging)
+    if abs(norm_high) <= abs(norm_low):
+        return None
+
+    # Both must be meaningfully falling
+    if abs(norm_high) < 0.002 or abs(norm_low) < 0.002:
+        return None
+
+    convergence = (abs(norm_high) - abs(norm_low)) / abs(norm_high)
+    confidence = round(max(0.0, min(convergence, 1.0)), 3)
+
+    breakout_level = float(high_intercept + high_slope * (lookback - 1))
+
+    return {
+        "pattern": "FALLING_WEDGE",
+        "breakout_level": round(breakout_level, 5),
+        "confidence": confidence,
+    }
