@@ -115,4 +115,8 @@ class TestDepthCircuitBreakerConcurrency:
         # Only one attempt should have been made; the second attempt sees
         # the open breaker and returns immediately.
         assert attempt_count == 1
-        assert client._depth_consecutive_timeouts == 1
+        # The breaker was already open (set inside counting_get, simulating
+        # another coroutine tripping it) when the TimeoutError handler ran,
+        # so the counter must NOT be incremented — inflating the counter
+        # past the threshold was the original bug.
+        assert client._depth_consecutive_timeouts == 0

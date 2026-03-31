@@ -1101,7 +1101,7 @@ class Scanner:
         candles = self._load_candles(symbol)
         if not candles:
             return None
-        indicators = self._compute_indicators(candles)
+        indicators = await asyncio.to_thread(self._compute_indicators, candles)
         ticks = self.data_store.ticks.get(symbol, [])
         # Use scalp-optimised sweep detection parameters: shorter lookback catches
         # recent S/R levels; wider tolerance catches institutional sweeps that

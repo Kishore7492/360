@@ -220,9 +220,12 @@ class BinanceClient:
                         log.warning("Binance %s returned HTTP %s", path, resp.status)
                         return None
             except asyncio.TimeoutError:
-                wait = _BACKOFF_BASE ** attempt
-                log.warning("Binance %s timeout – retrying in %.1fs", path, wait)
                 if is_depth:
+                    # If another concurrent coroutine already tripped the
+                    # breaker, stop immediately — no counter increment, no
+                    # retry, no misleading "retrying" log.
+                    if time.monotonic() < self._depth_circuit_open_until:
+                        return None
                     self._depth_consecutive_timeouts += 1
                     if self._depth_consecutive_timeouts >= DEPTH_CIRCUIT_BREAKER_THRESHOLD:
                         self._depth_circuit_open_until = (
@@ -235,6 +238,8 @@ class BinanceClient:
                             self._depth_consecutive_timeouts,
                         )
                         return None
+                wait = _BACKOFF_BASE ** attempt
+                log.warning("Binance %s timeout – retrying in %.1fs", path, wait)
                 await asyncio.sleep(wait)
             except Exception as exc:
                 log.error("Binance %s error: %s", path, exc)
