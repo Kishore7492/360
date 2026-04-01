@@ -1662,7 +1662,7 @@ class Scanner:
         _penalty_weights = _CHANNEL_PENALTY_WEIGHTS.get(chan_name, {})
         if _gate_profile.get("mtf", True):
             # Base MTF min_score: relaxed for SCALP (range-fade setups need less confluence)
-            _base_mtf_min_score = 0.4 if chan_name == "360_SCALP" else 0.5
+            _base_mtf_min_score = 0.55 if chan_name == "360_SCALP" else 0.5
             # Override with regime-specific min_score when configured
             _mtf_cfg = _MTF_REGIME_CONFIG.get(_regime_key, {})
             _mtf_min_score = _mtf_cfg.get("min_score", _base_mtf_min_score)
