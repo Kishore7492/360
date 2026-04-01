@@ -225,13 +225,17 @@ _MTF_REGIME_CONFIG: Dict[str, Dict[str, float]] = {
 # SPOT  → institutional only (4h+).
 # Channels not listed here use the detector's default order.
 _CHANNEL_SMC_TIMEFRAMES: Dict[str, tuple[str, ...]] = {
-    "360_SCALP":      ("1m", "5m", "15m"),
-    "360_SCALP_FVG":  ("5m", "15m"),
-    "360_SCALP_CVD":  ("5m", "15m"),
-    "360_SCALP_VWAP": ("5m", "15m"),
-    "360_SCALP_OBI":  ("5m", "15m"),
-    "360_SWING":      ("4h", "1h", "15m"),
-    "360_SPOT":       ("4h", "1h"),
+    "360_SCALP":              ("1m", "5m", "15m"),
+    "360_SCALP_FVG":          ("5m", "15m"),
+    "360_SCALP_CVD":          ("5m", "15m"),
+    "360_SCALP_VWAP":         ("5m", "15m"),
+    "360_SCALP_OBI":          ("5m", "15m"),
+    "360_SCALP_DIVERGENCE":   ("5m", "15m"),
+    "360_SCALP_SUPERTREND":   ("5m", "15m"),
+    "360_SCALP_ICHIMOKU":     ("5m", "15m"),
+    "360_SCALP_ORDERBLOCK":   ("5m", "15m"),
+    "360_SWING":              ("4h", "1h", "15m"),
+    "360_SPOT":               ("4h", "1h"),
 }
 
 # Which gates are active per channel family.
