@@ -25,6 +25,13 @@ _FVG_RETEST_PROXIMITY: float = 0.35  # was 0.5; tighter = higher-probability ret
 # FVG zone age management.
 # Zones older than _FVG_MAX_AGE_CANDLES are skipped (low institutional relevance).
 _FVG_MAX_AGE_CANDLES: int = 80
+# Graduated fill penalty curve constants.
+# At 0% fill → decay=1.0 (full SL); at 75% fill → decay=_FILL_DECAY_MIN.
+# Decay formula: max(_FILL_DECAY_MIN, 1.0 - fill_pct × _FILL_DECAY_RATE)
+_FILL_DECAY_MIN: float = 0.4
+_FILL_DECAY_RATE: float = 0.8
+# Zones filled beyond this threshold are rejected outright.
+_FILL_REJECT_PCT: float = 0.75
 # Minimum decay factor applied to SL distance for very old zones.
 # Decay = max(_FVG_MIN_DECAY, 1.0 - candles_ago / 100.0)
 # A decay of 1.0 = full SL; 0.2 = 20% of original SL (tightest allowed).
@@ -141,10 +148,10 @@ class ScalpFVGChannel(BaseChannel):
                 fill_pct = max(0.0, (gap_high_z - close) / zone_width_z)
             else:
                 fill_pct = max(0.0, (close - gap_low_z) / zone_width_z)
-            if fill_pct > 0.75:
-                return None  # Zone >75% filled — too weak to trade
-            # Graduated penalty: 0% fill → 1.0, 50% fill → 0.7, 75% fill → 0.4
-            fill_decay = max(0.4, 1.0 - fill_pct * 0.8)
+            if fill_pct > _FILL_REJECT_PCT:
+                return None  # Zone too heavily filled — too weak to trade
+            # Graduated penalty: 0% fill → 1.0, 50% fill → 0.6, 75% fill → 0.4
+            fill_decay = max(_FILL_DECAY_MIN, 1.0 - fill_pct * _FILL_DECAY_RATE)
 
         # RSI extreme gate: use pair-specific OB/OS levels when available
         if not check_rsi(ind.get("rsi_last"), overbought=thresholds["rsi_ob"], oversold=thresholds["rsi_os"], direction=direction.value):

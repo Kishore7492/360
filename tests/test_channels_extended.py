@@ -472,7 +472,7 @@ class TestAnalystReasonMetadata:
         ch = ScalpCVDChannel()
         cd = _make_candles(40, base=100.0)
         # Set current price near recent low (at support)
-        cd["close"][-1] = float(min(float(c) for c in cd["close"][-20:])) + 0.1
+        cd["close"][-1] = min(cd["close"][-20:]) + 0.1
         cd["low"][-1] = cd["close"][-1] - 0.3
         candles = {"5m": cd}
         indicators = {"5m": _make_indicators(adx_val=20, rsi_val=35)}

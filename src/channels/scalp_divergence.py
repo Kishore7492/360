@@ -28,6 +28,9 @@ log = get_logger("scalp_divergence")
 # Lookback window (in candles) for divergence detection.
 _DIV_LOOKBACK: int = 20
 
+# Minimum fraction of clean (non-NaN) RSI values required for divergence detection.
+_MIN_RSI_CLEAN_RATIO: float = 0.5
+
 # ADX ceiling – divergences are unreliable in very strong trends.
 _ADX_MAX: float = 40.0
 
@@ -97,7 +100,7 @@ class ScalpDivergenceChannel(BaseChannel):
         if rsi_arr_raw is None or len(rsi_arr_raw) < _DIV_LOOKBACK:
             rsi_arr_raw = compute_rsi(np.array(closes, dtype=np.float64))
         rsi_clean = [float(v) for v in rsi_arr_raw[-_DIV_LOOKBACK:] if not np.isnan(v)]
-        if len(rsi_clean) < _DIV_LOOKBACK // 2:
+        if len(rsi_clean) < int(_DIV_LOOKBACK * _MIN_RSI_CLEAN_RATIO):
             return None  # Too many NaN values — insufficient RSI data
         rsi_arr = rsi_clean
 
