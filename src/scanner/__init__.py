@@ -475,6 +475,12 @@ class Scanner:
         # by _get_spread_pct to apply tighter REST fetch limits.
         self._ws_any_degraded_this_cycle: bool = False
 
+        # Per-cycle depth circuit breaker flag: True when the futures or spot
+        # BinanceClient depth circuit breaker is open.  Set at the start of
+        # each scan cycle and used to proactively reduce the scan set and
+        # short-circuit order book fetches.
+        self._depth_breaker_open_this_cycle: bool = False
+
         # Suppression telemetry: counters per suppression reason, accumulated
         # over each scan cycle and logged as a summary at cycle end.
         self._suppression_counters: Dict[str, int] = defaultdict(int)
@@ -619,6 +625,16 @@ class Scanner:
                     )
                 self._consecutive_ws_degraded_cycles = 0
 
+            # Depth circuit breaker awareness: when the futures or spot
+            # BinanceClient depth endpoint breaker is open, depth fetches
+            # return None immediately.  Proactively flag this so the scan
+            # loop can reduce the scan set and _get_spread_pct can skip
+            # the counter-increment / fetch attempt entirely.
+            self._depth_breaker_open_this_cycle = (
+                (self.futures_client is not None and self.futures_client.is_depth_circuit_open)
+                or (self.spot_client is not None and self.spot_client.is_depth_circuit_open)
+            )
+
             try:
                 # Prioritise high-volume pairs for order book fetches
                 sorted_pairs = sorted(
@@ -659,10 +675,19 @@ class Scanner:
                     self._consecutive_high_latency_cycles > 0
                     and self.telemetry.scan_latency_ms > SCAN_LATENCY_REDUCE_MS
                 )
+                # Proactively skip Tier 2/3 when the depth circuit breaker is
+                # open: depth fetches return None anyway, so processing lower-
+                # tier symbols wastes CPU on indicator computation / channel
+                # evaluation without usable order-book data.
+                skip_lower_tiers_for_depth = self._depth_breaker_open_this_cycle
                 if skip_tier2_for_latency:
                     log.warning(
                         "Scan latency circuit breaker: skipping Tier 2 pairs "
                         "(last latency={:.0f}ms)", self.telemetry.scan_latency_ms
+                    )
+                if skip_lower_tiers_for_depth:
+                    log.warning(
+                        "Depth circuit breaker open — restricting scan to Tier 1 pairs only"
                     )
                 # In top-50 futures-only mode all included pairs are treated as
                 # Tier 1 (full scan every cycle); tier filtering still applies
@@ -670,11 +695,12 @@ class Scanner:
                 if TOP50_FUTURES_ONLY:
                     pairs_this_cycle = list(sorted_pairs)
                 else:
+                    _skip_lower = skip_tier2_for_latency or skip_lower_tiers_for_depth
                     pairs_this_cycle = [
                         (sym, info) for sym, info in sorted_pairs
                         if info.tier == PairTier.TIER1
-                        or (info.tier == PairTier.TIER2 and scan_tier2 and not skip_tier2_for_latency)
-                        or (info.tier == PairTier.TIER3 and scan_tier3 and not skip_tier2_for_latency)
+                        or (info.tier == PairTier.TIER2 and scan_tier2 and not _skip_lower)
+                        or (info.tier == PairTier.TIER3 and scan_tier3 and not _skip_lower)
                     ]
 
                 # Apply cheap in-memory pre-filters to reduce the number of
@@ -993,6 +1019,18 @@ class Scanner:
         cached = self._order_book_cache.get(symbol)
         if cached and now < cached[1]:
             return cached[0]
+        # Fast-path: when the depth circuit breaker is open, the underlying
+        # BinanceClient will return None immediately, but we still waste a
+        # counter increment and client-instantiation overhead per symbol.
+        # Short-circuit here with a cache TTL aligned to the breaker cooldown
+        # so the cache naturally expires once the breaker closes.
+        if self._depth_breaker_open_this_cycle:
+            from config import DEPTH_CIRCUIT_BREAKER_COOLDOWN  # noqa: PLC0415
+            self._order_book_cache[symbol] = (
+                spread_pct,
+                now + DEPTH_CIRCUIT_BREAKER_COOLDOWN + 5,
+            )
+            return spread_pct
         # Apply tighter limits when WS is partially degraded to prevent
         # burning REST rate-limit budget on depth fetches for all pairs.
         if self._ws_any_degraded_this_cycle:

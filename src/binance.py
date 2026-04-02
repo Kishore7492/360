@@ -88,6 +88,15 @@ class BinanceClient:
         self._inflight_sem: asyncio.Semaphore = asyncio.Semaphore(10)
 
     # ------------------------------------------------------------------
+    # Depth circuit breaker queries
+    # ------------------------------------------------------------------
+
+    @property
+    def is_depth_circuit_open(self) -> bool:
+        """Return ``True`` when the depth endpoint circuit breaker is open."""
+        return time.monotonic() < self._depth_circuit_open_until
+
+    # ------------------------------------------------------------------
     # Weight tracking
     # ------------------------------------------------------------------
 
