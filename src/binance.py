@@ -88,7 +88,7 @@ class BinanceClient:
         # doesn't block scan cycles.  A time-window approach (vs. consecutive
         # count) prevents intermittent successes from resetting the counter
         # while the endpoint is still fundamentally degraded.
-        self._depth_timeout_timestamps: list = []
+        self._depth_timeout_timestamps: list[float] = []
         self._depth_circuit_open_until: float = 0.0
         # Semaphore to cap the number of simultaneous in-flight HTTP requests.
         # Without this, hundreds of coroutines can bypass the rate limiter and
