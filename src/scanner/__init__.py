@@ -19,6 +19,7 @@ import numpy as np
 import uuid
 
 from config import (
+    DEPTH_CIRCUIT_BREAKER_COOLDOWN,
     MAX_CORRELATED_SCALP_SIGNALS,
     MTF_HARD_BLOCK,
     QUIET_SCALP_MIN_CONFIDENCE,
@@ -1025,7 +1026,6 @@ class Scanner:
         # Short-circuit here with a cache TTL aligned to the breaker cooldown
         # so the cache naturally expires once the breaker closes.
         if self._depth_breaker_open_this_cycle:
-            from config import DEPTH_CIRCUIT_BREAKER_COOLDOWN  # noqa: PLC0415
             self._order_book_cache[symbol] = (
                 spread_pct,
                 now + DEPTH_CIRCUIT_BREAKER_COOLDOWN + 5,
