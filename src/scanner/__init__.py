@@ -687,6 +687,7 @@ class Scanner:
                 # tier symbols wastes CPU on indicator computation / channel
                 # evaluation without usable order-book data.
                 skip_lower_tiers_for_depth = self._depth_breaker_open_this_cycle
+                _skip_lower = skip_tier2_for_latency or skip_lower_tiers_for_depth
                 if skip_tier2_for_latency:
                     log.warning(
                         "Scan latency circuit breaker: skipping Tier 2 pairs "
@@ -702,6 +703,12 @@ class Scanner:
                         log.warning(
                             "Depth circuit breaker open — restricting scan to Tier 1 pairs only"
                         )
+                elif _skip_lower and TOP50_FUTURES_ONLY:
+                    # Latency breaker only (no depth breaker) in TOP50 mode
+                    log.warning(
+                        "Latency breaker — restricting scan to top {} pairs",
+                        _TOP50_BREAKER_SCAN_COUNT,
+                    )
                 # In top-50 futures-only mode all included pairs are treated as
                 # Tier 1 (full scan every cycle); tier filtering still applies
                 # in the normal multi-tier path.
@@ -710,13 +717,11 @@ class Scanner:
                     # ineffective.  When the depth or latency breaker is
                     # active, restrict to the top-N by volume to avoid
                     # scanning 50 symbols without usable depth data.
-                    _skip_lower = skip_tier2_for_latency or skip_lower_tiers_for_depth
                     if _skip_lower:
                         pairs_this_cycle = list(sorted_pairs[:_TOP50_BREAKER_SCAN_COUNT])
                     else:
                         pairs_this_cycle = list(sorted_pairs)
                 else:
-                    _skip_lower = skip_tier2_for_latency or skip_lower_tiers_for_depth
                     pairs_this_cycle = [
                         (sym, info) for sym, info in sorted_pairs
                         if info.tier == PairTier.TIER1
