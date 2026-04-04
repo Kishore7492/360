@@ -574,6 +574,18 @@ class SignalRouter:
                     signal.channel,
                     signal.signal_id,
                 )
+                # Notify admin about the lost signal (FINDING-023)
+                try:
+                    await self._telegram.send_admin_alert(
+                        f"🚨 *Signal Lost*\n"
+                        f"Channel: {signal.channel}\n"
+                        f"Symbol: {signal.symbol}\n"
+                        f"Direction: {signal.direction.value}\n"
+                        f"Signal ID: {signal.signal_id}\n"
+                        f"Failed after 3 delivery attempts."
+                    )
+                except Exception:
+                    pass  # Best-effort — don't mask the original failure
             return
         log.info(
             "Signal posted → {} | {} {}",

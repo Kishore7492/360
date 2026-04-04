@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses as _dc
+import os
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -830,6 +831,10 @@ class Scanner:
                 )
                 self._suppression_counters.clear()
 
+            # Touch heartbeat file so healthcheck knows the scanner is alive
+            # (FINDING-024).
+            self._touch_heartbeat()
+
             if not self.force_scan:
                 await asyncio.sleep(1)
             self.force_scan = False
@@ -837,6 +842,20 @@ class Scanner:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    _HEARTBEAT_PATH = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "data", "scanner_heartbeat"
+    )
+
+    def _touch_heartbeat(self) -> None:
+        """Update the heartbeat file timestamp so the healthcheck can verify
+        that the scanner loop is actively running (FINDING-024)."""
+        try:
+            os.makedirs(os.path.dirname(self._HEARTBEAT_PATH), exist_ok=True)
+            with open(self._HEARTBEAT_PATH, "w") as fh:
+                fh.write(str(time.time()))
+        except OSError:
+            pass  # Best-effort; don't crash the scan loop
 
     def _is_in_cooldown(self, symbol: str, channel_name: str) -> bool:
         """Return True if the (symbol, channel) pair is currently in cooldown."""

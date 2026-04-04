@@ -97,7 +97,7 @@ class SuppressionLogger:
         self._counts_by_pair[pair] += 1
         self._total_suppressed += 1
 
-        log.debug(entry.format_log())
+        log.opt(lazy=True).debug("{}", lambda: entry.format_log())
 
     @property
     def total_suppressed(self) -> int:

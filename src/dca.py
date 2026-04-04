@@ -87,6 +87,12 @@ def compute_dca_zone(
             zone_range = (0.30, 0.60)
 
     sl_dist = abs(entry - stop_loss)
+
+    # Guard: if entry ≈ stop_loss the zone collapses to zero width and a DCA
+    # would add risk without meaningful improvement in average entry price.
+    if sl_dist < 1e-8 * max(abs(entry), 1.0):
+        return (0.0, 0.0)
+
     lo_frac, hi_frac = zone_range
 
     if direction == Direction.LONG:
