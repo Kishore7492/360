@@ -25,6 +25,12 @@ from src.vwap import compute_vwap
 # produce weak mean-reversion setups that fail to reach VWAP center.
 _MIN_VOLUME_RATIO: float = 1.5
 
+# ATR percentage reference used to scale the volume ratio adaptively.
+# When current ATR% is at or above this level, the full _MIN_VOLUME_RATIO is
+# applied.  Below it the ratio scales down linearly (floor 1.2×) so that
+# low-volatility markets still pass the volume confirmation gate.
+_ATR_PCT_VOL_SCALE_REF: float = 0.3
+
 # Regimes where VWAP bounce scalps are valid (mean-reversion only)
 _VALID_REGIMES = frozenset({MarketRegime.RANGING, MarketRegime.QUIET})
 
@@ -115,7 +121,7 @@ class ScalpVWAPChannel(BaseChannel):
         if atr_val is not None and close > 0:
             atr_pct = (atr_val / close) * 100.0
             # In low ATR environments, lower the volume ratio requirement
-            effective_vol_ratio = max(1.2, _MIN_VOLUME_RATIO * min(1.0, atr_pct / 0.3))
+            effective_vol_ratio = max(1.2, _MIN_VOLUME_RATIO * min(1.0, atr_pct / _ATR_PCT_VOL_SCALE_REF))
         else:
             effective_vol_ratio = _MIN_VOLUME_RATIO
         if avg_vol <= 0 or current_vol < avg_vol * effective_vol_ratio:

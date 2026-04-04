@@ -31,6 +31,13 @@ _WHALE_DELTA_MIN_RATIO: float = 2.0
 _WHALE_MIN_TICK_VOLUME_USD: float = 500_000.0
 _WHALE_OBI_MIN: float = 1.5
 
+# Regime-adaptive ADX floor for the standard scalp path.  In RANGING/QUIET
+# markets ADX hovers at 15-20 and blocks most liquidity-sweep setups.
+# Absolute minimum prevents the gate from becoming too permissive.
+_ADX_RANGING_FLOOR: float = 12.0
+# Multiplier applied to the pair-specific adx_min in RANGING/QUIET regimes.
+_ADX_RANGING_MULTIPLIER: float = 0.75
+
 
 class ScalpChannel(BaseChannel):
     def __init__(self) -> None:
@@ -145,7 +152,7 @@ class ScalpChannel(BaseChannel):
         # floor so well-formed liquidity-sweep setups can still compete.
         adx_min_effective = thresholds["adx_min"]
         if regime and regime.upper() in ("RANGING", "QUIET"):
-            adx_min_effective = max(12.0, thresholds["adx_min"] * 0.75)
+            adx_min_effective = max(_ADX_RANGING_FLOOR, thresholds["adx_min"] * _ADX_RANGING_MULTIPLIER)
         if not check_adx(ind.get("adx_last"), adx_min_effective):
             return None
         if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime, profile=profile):
