@@ -654,6 +654,8 @@ class TelegramBot:
         """
         self._running = True
         _allowed: str = json.dumps(["message", "my_chat_member"])
+        _consecutive_errors: int = 0
+        _MAX_POLL_BACKOFF: float = 60.0
         # Clear stale updates before starting to poll so commands queued
         # during a long boot (pair seeding, etc.) are not re-processed.
         try:
@@ -679,9 +681,12 @@ class TelegramBot:
                 params = {"offset": str(self._offset), "timeout": "20", "allowed_updates": _allowed}
                 async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                     if resp.status != 200:
-                        await asyncio.sleep(5)
+                        _consecutive_errors += 1
+                        backoff = min(5 * (2 ** _consecutive_errors), _MAX_POLL_BACKOFF)
+                        await asyncio.sleep(backoff)
                         continue
                     data = await resp.json()
+                _consecutive_errors = 0  # Reset on success
                 for update in data.get("result", []):
                     self._offset = update["update_id"] + 1
                     msg = update.get("message", {})
@@ -704,8 +709,10 @@ class TelegramBot:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                log.debug("Command poll error: %s", exc)
-                await asyncio.sleep(5)
+                _consecutive_errors += 1
+                backoff = min(5 * (2 ** _consecutive_errors), _MAX_POLL_BACKOFF)
+                log.debug("Command poll error (retry in %.0fs): %s", backoff, exc)
+                await asyncio.sleep(backoff)
 
     async def stop(self) -> None:
         self._running = False

@@ -105,13 +105,24 @@ class Bootstrap:
 
     async def boot(self) -> None:
         """Execute the full engine boot sequence."""
+        from config import validate_critical_env_vars
+
         engine = self._engine
         log.info("=== 360-Crypto-Eye-Scalping Engine BOOTING ===")
         engine._boot_time = time.monotonic()
 
-        # 0. Connect to Redis (graceful fallback if unavailable)
+        # 0a. Validate critical env vars (FINDING-011)
+        validate_critical_env_vars()
+
+        # 0b. Connect to Redis (graceful fallback if unavailable)
         await engine._redis_client.connect()
         engine.telemetry.set_redis_client(engine._redis_client)
+
+        # 0c. Restore circuit breaker state from Redis (FINDING-021)
+        if hasattr(engine, "circuit_breaker"):
+            restored = await engine.circuit_breaker.restore_state(engine._redis_client)
+            if restored:
+                log.info("Circuit breaker state restored from Redis")
 
         # Wire API call tracking
         BinanceClient.on_api_call = engine.telemetry.record_api_call
@@ -213,6 +224,25 @@ class Bootstrap:
         """Gracefully shut down all engine components."""
         engine = self._engine
         log.info("Shutting down …")
+
+        # Notify admin about active signals before cleanup (FINDING-013)
+        active_count = len(engine.router.active_signals)
+        if active_count > 0:
+            try:
+                await engine.telegram.send_admin_alert(
+                    f"⚠️ Engine shutting down with {active_count} active signal(s).\n"
+                    "Please monitor open positions manually."
+                )
+            except Exception as exc:
+                log.warning("Failed to send shutdown alert: {}", exc)
+
+        # Persist circuit breaker state to Redis (FINDING-021)
+        if hasattr(engine, "circuit_breaker"):
+            try:
+                await engine.circuit_breaker.save_state(engine._redis_client)
+            except Exception as exc:
+                log.warning("Failed to save circuit breaker state: {}", exc)
+
         tasks = list(engine._tasks)
         for t in tasks:
             t.cancel()

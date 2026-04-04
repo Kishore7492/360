@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12.11-slim
 
 # Set UTC timezone for consistent candle timestamps
 ENV TZ=UTC

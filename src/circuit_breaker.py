@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ _DEFAULT_PER_SYMBOL_COOLDOWN_SECONDS: int = 3600
 _DEFAULT_PER_SYMBOL_DAILY_DRAWDOWN_PCT: float = 3.0
 _HOURLY_WINDOW_SECONDS: float = 3600.0
 _DAILY_WINDOW_SECONDS: float = 86_400.0
+_REDIS_KEY_CB_STATE = "circuit_breaker:state"
 
 
 @dataclass
@@ -425,3 +427,120 @@ class CircuitBreaker:
             return 0.0
         current_drawdown, _ = calculate_drawdown_metrics(pnls)
         return current_drawdown
+
+    # ------------------------------------------------------------------
+    # Redis persistence (FINDING-021)
+    # ------------------------------------------------------------------
+
+    def _state_to_dict(self) -> Dict[str, Any]:
+        """Serialise circuit-breaker state to a JSON-safe dict."""
+        now = time.monotonic()
+        wall = time.time()
+        return {
+            "tripped": self._tripped,
+            "trip_reason": self._trip_reason,
+            # Store trip remaining seconds so it's independent of monotonic epoch
+            "trip_remaining_s": self._cooldown_remaining() if self._tripped else 0.0,
+            "consecutive_sl": self._consecutive_sl,
+            "status_mode": self._status_mode,
+            # Per-symbol: store remaining seconds until expiry
+            "per_symbol_tripped": {
+                sym: max(0.0, exp - now)
+                for sym, exp in self._per_symbol_tripped_until.items()
+                if exp > now
+            },
+            "per_symbol_consecutive_sl": dict(self._per_symbol_consecutive_sl),
+            "outcomes": [
+                {
+                    "signal_id": r.signal_id,
+                    "hit_sl": r.hit_sl,
+                    "pnl_pct": r.pnl_pct,
+                    # Store age-from-now so restore is monotonic-epoch independent
+                    "age_s": now - r.timestamp,
+                    "symbol": r.symbol,
+                }
+                for r in self._outcomes
+            ],
+            "saved_wall_time": wall,
+        }
+
+    def _restore_from_dict(self, data: Dict[str, Any]) -> None:
+        """Restore circuit-breaker state from a previously saved dict."""
+        now = time.monotonic()
+        self._tripped = bool(data.get("tripped", False))
+        self._trip_reason = str(data.get("trip_reason", ""))
+        trip_remaining = float(data.get("trip_remaining_s", 0.0))
+        if self._tripped and trip_remaining > 0:
+            self._trip_time = now - (self.cooldown_seconds - trip_remaining)
+        elif self._tripped:
+            # Cooldown already expired — still mark as tripped so _refresh_state
+            # can decide whether to resume based on rolling loss conditions.
+            self._trip_time = now - self.cooldown_seconds - 1
+        else:
+            self._trip_time = None
+        self._consecutive_sl = int(data.get("consecutive_sl", 0))
+        self._status_mode = str(data.get("status_mode", "healthy"))
+
+        # Per-symbol suppressions
+        per_sym = data.get("per_symbol_tripped", {})
+        self._per_symbol_tripped_until = {
+            sym: now + remaining
+            for sym, remaining in per_sym.items()
+            if remaining > 0
+        }
+        self._per_symbol_consecutive_sl = {
+            k: int(v)
+            for k, v in data.get("per_symbol_consecutive_sl", {}).items()
+        }
+
+        # Outcome history
+        outcomes_raw = data.get("outcomes", [])
+        self._outcomes.clear()
+        for o in outcomes_raw:
+            age = float(o.get("age_s", 0))
+            if age > _DAILY_WINDOW_SECONDS:
+                continue  # Too old to matter
+            self._outcomes.append(
+                OutcomeRecord(
+                    signal_id=str(o.get("signal_id", "")),
+                    hit_sl=bool(o.get("hit_sl", False)),
+                    pnl_pct=float(o.get("pnl_pct", 0.0)),
+                    timestamp=now - age,
+                    symbol=str(o.get("symbol", "")),
+                )
+            )
+
+        self._refresh_state()
+        log.info(
+            "Circuit breaker state restored: tripped=%s, mode=%s, outcomes=%d",
+            self._tripped,
+            self._status_mode,
+            len(self._outcomes),
+        )
+
+    async def save_state(self, redis_client: Any) -> bool:
+        """Persist current state to Redis.  Returns True on success."""
+        if not getattr(redis_client, "available", False):
+            return False
+        try:
+            payload = json.dumps(self._state_to_dict())
+            await redis_client.client.set(_REDIS_KEY_CB_STATE, payload)
+            return True
+        except Exception as exc:
+            log.warning("Failed to persist circuit breaker state: %s", exc)
+            return False
+
+    async def restore_state(self, redis_client: Any) -> bool:
+        """Restore state from Redis.  Returns True if state was restored."""
+        if not getattr(redis_client, "available", False):
+            return False
+        try:
+            raw = await redis_client.client.get(_REDIS_KEY_CB_STATE)
+            if raw is None:
+                return False
+            data = json.loads(raw)
+            self._restore_from_dict(data)
+            return True
+        except Exception as exc:
+            log.warning("Failed to restore circuit breaker state: %s", exc)
+            return False

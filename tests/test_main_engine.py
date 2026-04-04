@@ -139,7 +139,7 @@ class TestBootstrapInterface:
         task = asyncio.create_task(wait_forever())
         engine = SimpleNamespace(
             _tasks=[task],
-            router=SimpleNamespace(stop=AsyncMock()),
+            router=SimpleNamespace(stop=AsyncMock(), active_signals={}),
             monitor=SimpleNamespace(stop=AsyncMock()),
 
             telemetry=SimpleNamespace(stop=AsyncMock()),
@@ -154,8 +154,11 @@ class TestBootstrapInterface:
             _scanner=SimpleNamespace(spot_client=None),
             _openai_evaluator=SimpleNamespace(close=AsyncMock()),
             _onchain_client=SimpleNamespace(close=AsyncMock()),
-            _redis_client=SimpleNamespace(close=AsyncMock()),
-            telegram=SimpleNamespace(stop=AsyncMock()),
+            _redis_client=SimpleNamespace(close=AsyncMock(), available=False),
+            telegram=SimpleNamespace(
+                stop=AsyncMock(),
+                send_admin_alert=AsyncMock(return_value=True),
+            ),
         )
 
         bootstrap = Bootstrap(engine)
