@@ -1088,7 +1088,7 @@ class Scanner:
         # Skip if already have a fresh depth cache entry
         now = time.monotonic()
         cached = self._order_book_depth_cache.get(symbol)
-        if cached is not None:
+        if cached and len(cached) == 3:
             _, _, expiry = cached
             if now < expiry:
                 return

@@ -662,6 +662,7 @@ class TestSpreadCacheFailureTTL:
 
         await scanner._fetch_depth_for_obi("BTCUSDT")
 
+        assert "BTCUSDT" in scanner._order_book_depth_cache
         assert "BTCUSDT" in scanner._order_book_cache
         spread_pct, _ = scanner._order_book_cache["BTCUSDT"]
         assert spread_pct > 0
