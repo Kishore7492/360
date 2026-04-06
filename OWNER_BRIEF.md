@@ -4,9 +4,9 @@
 > 
 > At the start of every new Copilot session, paste this prompt:
 > ```
-> Read OWNER_BRIEF.md in mkmk749278/360-v2 — continue from where we left off.
+> Read OWNER_BRIEF.md in mkmk749278/360-v2 — this is my crypto signal business.
+> Continue from where we left off. Today I want to: [what you need]
 > ```
-> Copilot will read this file, understand the full context, and continue without needing re-explanation.
 
 ---
 
@@ -16,32 +16,38 @@
 
 **Revenue model:** Monthly subscription. Subscribers pay to receive trade signals via Telegram. Retention depends on:
 1. Signal quality — subscribers must be able to make money following signals
-2. Channel activity — channel must feel alive and professionally run, not go silent for hours
-3. Trust — every signal must look like it was written by a human expert analyst, not a bot
+2. Channel activity — channel must feel alive and professionally run, never silent
+3. Trust — every signal and post must look like a human expert analyst wrote it, not a bot
 
-**The system is fully automated.** No manual effort at runtime. All content (signals, market commentary, session briefs, radar alerts) must be AI-generated but feel human-written.
+**The system is fully automated.** No manual effort at runtime. All content (signals, market commentary, session briefs, radar alerts) is AI-generated but feels human-written.
 
-**Owner:** mkmk749278  
-**Repo:** https://github.com/mkmk749278/360-v2  
-**Stack:** Python 3.11+, asyncio, aiohttp, Redis, Docker Compose, Telegram Bot API  
+**Status:** In testing. No subscribers yet. Building the full system before launch.
+
+**Owner:** mkmk749278
+**Repo:** https://github.com/mkmk749278/360-v2
+**Stack:** Python 3.11+, asyncio, aiohttp, Redis, Docker Compose, Telegram Bot API
 **Deployment:** Single VPS, Docker Compose, GitHub Actions CD on push to `main`
 
 ---
 
 ## 2. Business Rules (Non-Negotiable)
 
-These decisions are made and locked. Do not reverse them without explicit owner instruction.
+These decisions are made and locked. Do not reverse without explicit owner instruction.
 
 | # | Rule | Reason |
 |---|---|---|
-| B1 | All signals go to ONE Telegram channel (`TELEGRAM_ACTIVE_CHANNEL_ID`) | Simplicity. Subscribers see everything in one place. |
+| B1 | All live signals go to ONE paid Telegram channel (`TELEGRAM_ACTIVE_CHANNEL_ID`) | Simplicity. Subscribers see everything in one place. |
 | B2 | Zero manual effort at runtime | Owner is not monitoring 24/7. Everything must self-manage. |
-| B3 | Content must feel human-written | AI-generated but with natural language, named setups, context. Not "Signal fired: conf=83.2" |
+| B3 | Content must feel human-written | AI-generated but natural language, named setups, real context. Never "Signal fired: conf=83.2" |
 | B4 | No channel code deleted — only disabled via config | Instant re-enable via `.env`. No irreversible changes. |
-| B5 | All new config values must be env-var overridable | Owner must be able to tune values without code changes or redeployment |
+| B5 | All config values must be env-var overridable | Owner tunes values without code changes or redeployment |
 | B6 | SMC structural basis is non-negotiable | No signal fires without minimum SMC score — no pure momentum plays |
-| B7 | System must survive Binance API degradation gracefully | Circuit breakers, fallbacks, no scan-blocking on depth timeouts |
-| B8 | Subscribers must never receive duplicate signals on same symbol within 30 minutes | Global cross-channel per-symbol cooldown enforced |
+| B7 | System must survive Binance API degradation gracefully | Circuit breakers, fallbacks, no scan-blocking |
+| B8 | No duplicate signals on same symbol within 30 minutes | Global cross-channel per-symbol cooldown enforced |
+| B9 | Simple. Minimalistic. Eye-catching. | Every message looks clean, not robotic. Less is more. |
+| B10 | SL hits posted honestly, same weight as TP hits | Transparency is a competitive advantage. Never go silent after a loss. |
+| B11 | Radar alerts go to FREE channel ONLY | Paid channel gets live signals only. Free channel is the funnel. |
+| B12 | GPT failure must never cause missed post or crash | Always fall back to template. Engine stability is sacred. |
 
 ---
 
@@ -49,85 +55,114 @@ These decisions are made and locked. Do not reverse them without explicit owner 
 
 | Decision | What We Chose | Why |
 |---|---|---|
-| Signal universe | Top-75 USDT-M futures (was 50) | More coverage while staying high-liquidity |
-| Channel count active | 4 active channels | SCALP, FVG, ORDERBLOCK, DIVERGENCE |
-| Channel count soft-disabled | 4 disabled | CVD, VWAP, SUPERTREND, ICHIMOKU — kept in code, off by default |
-| Volume floor | Regime-aware (not flat) | $1M QUIET → $5M VOLATILE. Flat $3M kills signals during slow sessions |
+| Signal universe | Top-75 USDT-M futures | More coverage while staying high-liquidity |
+| Active channels | 4 (SCALP, FVG, ORDERBLOCK, DIVERGENCE) | Focused, non-overlapping |
+| Soft-disabled channels | 4 (CVD, VWAP, SUPERTREND, ICHIMOKU) | Kept in code, repurposed as radar generators |
+| Volume floor | Regime-aware | $1M QUIET → $5M VOLATILE |
 | Confidence thresholds | Per-channel | SCALP=80, FVG=78, ORDERBLOCK=78, DIVERGENCE=76 |
-| Kill zone POST_NY_LULL | Penalty only (not hard block) | Channel must stay alive 20:00–24:00 UTC |
-| Signal headers | Named setup type | "⚡ SWEEP REVERSAL" not "360_SCALP_FVG" |
-| Global symbol cooldown | 1800s (30 min) cross-channel | No 3x BTC LONG in 10 minutes |
-| SMC hard gate | smc_score ≥ 12.0 required | Structural basis non-negotiable |
+| Kill zone POST_NY_LULL | Penalty only (0.65×), never hard block | Channel stays alive 20:00–24:00 UTC |
+| Signal headers | Named setup type | "⚡ FVG RETEST" not "360_SCALP_FVG" |
+| Global symbol cooldown | 1800s (30 min) cross-channel | No 3× BTC LONG in 10 minutes |
+| SMC hard gate | smc_score ≥ 12.0 | Structural basis non-negotiable |
 | Trend hard gate | trend_score ≥ 10.0 on scalp channels | Opposing EMAs = no signal |
-| ADX minimum | 20 for SCALP, 18 for FVG | Was 15 — too loose |
+| ADX minimum | 20 SCALP / 18 FVG | Was 15 — too loose |
+| Message formatting | Minimalist, rotating variants, context-driven | Never looks identical twice |
+| GPT model | gpt-4o-mini | Cost-efficient, fast, good quality for short posts |
+| Radar threshold | 65 confidence / 70 for "watching closely" | Two tiers within radar |
+| Signal volume target | 10–20 signals/day | Active but not noisy |
+| EOD wrap time | 21:00 UTC | Covers London close, good for most timezones |
 
 ---
 
-## 4. PR Log
+## 4. Message Formatting Design (Locked)
 
-### PR1 — Signal Quality Overhaul *(in progress / merged)*
-**Branch:** Created by Copilot agent  
-**Status:** Agent working — check open PRs in repo
+**Design rules — apply to every single message:**
 
-**Changes:**
-- [ ] Regime-aware volume floor (`REGIME_MIN_VOLUME_USD`)
-- [ ] SMC hard gate (min smc_score=12)
-- [ ] Trend hard gate (min trend_score=10 on scalp)
-- [ ] Per-channel confidence thresholds (SCALP=80, FVG=78, OB=78, DIV=76)
-- [ ] ADX minimum raised (SCALP=20, FVG=18)
-- [ ] Global cross-channel per-symbol 30-min cooldown
-- [ ] Named signal headers (`SIGNAL_TYPE_LABELS` mapping)
-- [ ] 4 channels soft-disabled via env flags (CVD, VWAP, SUPERTREND, ICHIMOKU)
-- [ ] Pairs expanded to 75
-- [ ] POST_NY_LULL multiplier raised to 0.65 (no longer hard-blocks)
-- [ ] MAX_CORRELATED_SCALP_SIGNALS reduced to 4
-- [ ] `.env.example` updated with all new vars
+1. Maximum 10 lines per message
+2. One emoji maximum, always at the start
+3. Numbers aligned vertically using spaces
+4. One separator style only — the `·` dot
+5. No labels that shout — `TP1` not `🎯 TARGET 1:`
+6. Confidence bar only on live signals — `████████░░`
+7. SL posts same visual weight as TP posts
+8. GPT writes commentary only — numbers always from engine data
+9. Variant selection is context-driven — urgency, time of day, recent post frequency
+10. Template fallback is production-quality — good enough to post without GPT
 
----
+**Content type visual identities:**
 
-### PR2 — AI-Powered Radar & Engagement Layer *(planned)*
-**Status:** Design agreed, not started
-
-**What it does:**
-- Free Telegram channel (`TELEGRAM_FREE_CHANNEL_ID`) becomes a **lead generation funnel** for the paid channel
-- 4 soft-disabled channels (CVD, VWAP, SUPERTREND, ICHIMOKU) are repurposed as **Radar alert generators** — they post "ON RADAR" watch alerts to the free channel when their `evaluate()` would have fired (confidence > 65, lower bar)
-- **Session open messages** — automated, AI-written, posted at London open (07:00 UTC), NY open (13:30 UTC): 2–3 lines about current regime, pairs being watched
-- **Daily regime briefing** — 08:00 UTC, AI-generated, "This is what the market looks like today and what we're watching for"
-- **Weekly performance summary** — Monday 09:00 UTC, AI-generated: signals sent, win rate, avg R
-- All content generated by OpenAI GPT-4o-mini. Prompts must produce natural, analyst-voice output
-- Zero manual effort. Fully scheduled and automated.
-
-**Architecture for PR2:**
-- New module: `src/content_engine.py` — AI content generator (session briefs, radar alerts, weekly summaries)
-- New module: `src/radar_channel.py` — evaluates soft-disabled channels at lower threshold, posts to free channel
-- New background task in `src/main.py` — scheduled content poster (cron-style via asyncio)
-- GPT-4o-mini prompts stored in `src/prompts/` as `.txt` template files for easy editing
+| Type | Style |
+|---|---|
+| Live Signal | Columns, conf bar, setup emoji, 3 rotating variants |
+| Radar Alert | Flowing text, analyst voice, 6 rotating variants |
+| Trade Closed | Clean fields, honest, running W/L record |
+| Morning Brief | 2–3 lines GPT + pairs, clean header |
+| Session Open | 2 lines max, no frame, immediate feel |
+| Market Watch | Short, patience tone, 3 variants |
+| Weekly Card | Stats table, clean columns |
 
 ---
 
-### PR3 — Revenue & Subscriber Features *(planned after PR2)*
-**Status:** Concept only
+## 5. PR Log
 
-**Ideas:**
-- Subscriber tier system (Free / Premium via Telegram payments or external checkout)
-- Performance proof page (auto-generated weekly image with win rate chart)
-- Signal history command for subscribers
+### PR1 — Signal Quality Overhaul ✅ MERGED
+**PR:** [#44](https://github.com/mkmk749278/360-v2/pull/44) — merged 2026-04-06
+
+- ✅ Regime-aware volume floor
+- ✅ SMC hard gate (smc_score ≥ 12)
+- ✅ Trend hard gate (trend_score ≥ 10 on scalp)
+- ✅ Per-channel confidence thresholds
+- ✅ ADX minimum raised
+- ✅ Global 30-min cross-channel symbol cooldown
+- ✅ Named signal headers
+- ✅ 4 channels soft-disabled
+- ✅ Pairs expanded to 75
+- ✅ POST_NY_LULL no longer hard-blocks
+- ✅ MAX_CORRELATED_SCALP_SIGNALS = 4
+
+---
+
+### PR2 — AI-Powered Engagement Layer 🔄 BUILDING
+**Status:** Copilot agent building now
+
+**5 pillars:**
+
+1. **Scheduled daily content** — Morning brief (07:00), London open (08:00), NY open (13:30), EOD wrap (21:00), Weekly card (Mon 09:00) — both channels
+2. **Radar alerts** — 4 soft-disabled channels run at conf ≥ 65, post to FREE channel only. 6 dynamic variants. Max 3/hour.
+3. **Trade closed posts** — Every TP and SL hits auto-post to active channel. Honest. Running W/L record.
+4. **Smart silence breaker** — No post for 3 hours during 08:00–22:00 UTC → auto market watch post
+5. **Dynamic presentation** — 2–6 variants per content type, GPT-4o-mini persona, emoji pools, length variation, template fallback
+
+**New modules:**
+- `src/content_engine.py` — GPT wrapper + template renderer
+- `src/formatter.py` — all message formatting and variants
+- `src/scheduler.py` — asyncio cron
+- `src/radar_channel.py` — radar evaluator
+- `src/prompts/` — all GPT prompt templates
+
+---
+
+### PR3 — Revenue & Subscriber Features ⏳ PLANNED
+- Subscriber tier system
+- Auto-generated weekly performance image
+- `/mystats`, `/history`, `/active` commands
 - Referral tracking
 
 ---
 
-## 5. Current Priorities (In Order)
+## 6. Current Priorities
 
-1. ✅ PR1 merged and running on VPS
-2. 🔄 Review PR1 signals for 48 hours — confirm signal count is 8–15/day
-3. ⏳ PR2 — AI Radar + Engagement Layer (discuss design before starting)
-4. ⏳ PR3 — Revenue features (after PR2 is stable)
+1. ✅ PR1 merged
+2. 🔄 PR2 building
+3. ⏳ Monitor signal volume (target 10–20/day)
+4. ⏳ PR2 review and merge
+5. ⏳ PR3 revenue features
 
 ---
 
-## 6. System Thresholds Quick Reference
+## 7. System Thresholds Quick Reference
 
-| Variable | Current Value | Env Var to Change |
+| Variable | Value | Env Var |
 |---|---|---|
 | Min confidence SCALP | 80 | `MIN_CONFIDENCE_SCALP` |
 | Min confidence FVG | 78 | `MIN_CONFIDENCE_FVG` |
@@ -139,52 +174,52 @@ These decisions are made and locked. Do not reverse them without explicit owner 
 | Volume floor RANGING | $1.5M | `VOL_FLOOR_RANGING` |
 | Volume floor TRENDING | $3M | `VOL_FLOOR_TRENDING` |
 | Volume floor VOLATILE | $5M | `VOL_FLOOR_VOLATILE` |
-| Global symbol cooldown | 1800s (30 min) | `GLOBAL_SYMBOL_COOLDOWN_SECONDS` |
+| Global symbol cooldown | 1800s | `GLOBAL_SYMBOL_COOLDOWN_SECONDS` |
 | Per-channel cooldown | 600s | `SCALP_SCAN_COOLDOWN` |
 | Max correlated scalps | 4 | `MAX_CORRELATED_SCALP_SIGNALS` |
 | Pairs scanned | 75 | `TOP50_FUTURES_COUNT` |
 | ADX min SCALP | 20 | `ADX_MIN_SCALP` |
 | ADX min FVG | 18 | `ADX_MIN_FVG` |
-| Depth CB threshold | 3 timeouts/30s | `DEPTH_CIRCUIT_BREAKER_THRESHOLD` |
-| Depth CB cooldown | 90s | `DEPTH_CIRCUIT_BREAKER_COOLDOWN` |
+| Radar alert threshold | 65 | `RADAR_ALERT_MIN_CONFIDENCE` |
+| Radar watching closely | 70 | `RADAR_ALERT_WATCHING_CLOSELY_CONFIDENCE` |
+| Radar per-symbol cooldown | 900s | `RADAR_PER_SYMBOL_COOLDOWN_SECONDS` |
+| Radar max per hour | 3 | `RADAR_MAX_PER_HOUR` |
+| Silence breaker window | 3 hours | `SILENCE_BREAKER_HOURS` |
+| GPT model | gpt-4o-mini | `CONTENT_GPT_MODEL` |
 
 ---
 
-## 7. Active Channels
+## 8. Active Channels
 
 | Channel | Status | Purpose |
 |---|---|---|
-| `360_SCALP` | ✅ Active | Liquidity sweep reversals, range fades, whale momentum |
+| `360_SCALP` | ✅ Active | Sweep reversals, range fades, whale momentum |
 | `360_SCALP_FVG` | ✅ Active | Fair Value Gap retests |
 | `360_SCALP_ORDERBLOCK` | ✅ Active | SMC order block bounces |
 | `360_SCALP_DIVERGENCE` | ✅ Active | RSI/MACD divergence reversals |
-| `360_SCALP_CVD` | 🔇 Soft-disabled | CVD data already in order_flow_score; separate channel = duplicate signals |
-| `360_SCALP_VWAP` | 🔇 Soft-disabled | Overlaps with FVG retests — same candle, same direction, two signals |
-| `360_SCALP_SUPERTREND` | 🔇 Soft-disabled | Trend-follower lags; SCALP sweep channel catches the move first |
-| `360_SCALP_ICHIMOKU` | 🔇 Soft-disabled | Works on 1h+; generates noise on 5m |
-
-To re-enable any: set `CHANNEL_SCALP_CVD_ENABLED=true` (etc.) in `.env`, restart engine.
+| `360_SCALP_CVD` | 📡 Radar only | Free channel radar alerts |
+| `360_SCALP_VWAP` | 📡 Radar only | Free channel radar alerts |
+| `360_SCALP_SUPERTREND` | 📡 Radar only | Free channel radar alerts |
+| `360_SCALP_ICHIMOKU` | 📡 Radar only | Free channel radar alerts |
 
 ---
 
-## 8. How to Continue a Session
-
-Paste this at the start of any new Copilot chat:
+## 9. How to Continue a Session
 
 ```
 Read OWNER_BRIEF.md in mkmk749278/360-v2 — this is my crypto signal business.
-Continue from where we left off. Current priority: [describe what you want to do today].
+Continue from where we left off. Today I want to: [what you need]
 ```
-
-Copilot will read this file and have full context within seconds.
 
 ---
 
-## 9. Owner Notes
+## 10. Partner Notes (Locked Decisions)
 
-*(Add your own notes here as we work — business decisions, ideas, things to remember)*
-
-- PR2 must be fully automatic. No manual posting. Ever.
-- The free channel is a sales funnel, not charity. Every free message should make someone want to upgrade.
-- Signal quality > signal quantity. 8 clean signals/day beats 30 noisy ones.
-- The system needs to feel like there's a professional analyst watching 24/7. GPT must write like one.
+- Signal quality > signal quantity. 10 clean signals beats 30 noisy ones.
+- The free channel is a sales funnel. Every free post makes someone want to upgrade.
+- The channel must never go silent. Silence breaker is non-negotiable.
+- Every loss gets posted honestly. Transparency retains subscribers long-term.
+- Simple. Minimalistic. Eye-catching. No walls of text. No robot formatting.
+- GPT writes the voice, engine provides the numbers. Never invent data.
+- The system must feel like a professional analyst is watching 24/7. That is the product.
+- We build the business, not just fix bugs. Every PR moves the business forward.
