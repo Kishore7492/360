@@ -105,6 +105,10 @@ class BinanceClient:
         """Return ``True`` when the depth endpoint circuit breaker is open."""
         return time.monotonic() < self._depth_circuit_open_until
 
+    def reset_depth_circuit(self) -> None:
+        """Immediately close the depth circuit breaker."""
+        self._depth_circuit_open_until = 0.0
+
     # ------------------------------------------------------------------
     # Weight tracking
     # ------------------------------------------------------------------

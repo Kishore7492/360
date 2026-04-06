@@ -215,6 +215,12 @@ NEW_PAIR_MIN_CONFIDENCE: float = 50.0  # lower cap until enough data
 # Symbols below this threshold are skipped by the pre-filter before any
 # order-book or kline fetches, reducing unnecessary weight consumption.
 SCAN_MIN_VOLUME_USD: float = _safe_float("SCAN_MIN_VOLUME_USD", "500000")
+# Symbols permanently excluded from scanning (gold-pegged tokens, micro-caps).
+# Configurable via comma-separated env var; defaults cover the known junk pairs.
+SCAN_SYMBOL_BLACKLIST: set = set(
+    s for s in os.getenv("SCAN_SYMBOL_BLACKLIST", "XAUTUSDT,PAXGUSDT,MMTUSDT,KOMAUSDT,STOUSDT").split(",")
+    if s
+)
 
 # ---------------------------------------------------------------------------
 # Top-50 futures-only mode (PR1–PR5)
@@ -1086,15 +1092,15 @@ NO_SIGNAL_ALERT_COOLDOWN_SECONDS: int = int(
 # Scan-latency circuit breaker thresholds
 # ---------------------------------------------------------------------------
 # Warn in logs when a single scan cycle exceeds this duration (ms).
-SCAN_LATENCY_WARN_MS: float = _safe_float("SCAN_LATENCY_WARN_MS", "15000")
+SCAN_LATENCY_WARN_MS: float = _safe_float("SCAN_LATENCY_WARN_MS", "25000")
 # Fire an admin alert when latency exceeds this threshold for N consecutive
 # cycles (see SCAN_LATENCY_ALERT_CONSECUTIVE).
-SCAN_LATENCY_ALERT_MS: float = _safe_float("SCAN_LATENCY_ALERT_MS", "30000")
+SCAN_LATENCY_ALERT_MS: float = _safe_float("SCAN_LATENCY_ALERT_MS", "45000")
 # Number of consecutive over-threshold cycles before the admin alert fires.
 SCAN_LATENCY_ALERT_CONSECUTIVE: int = _safe_int("SCAN_LATENCY_ALERT_CONSECUTIVE", "3")
 # When latency exceeds this value, automatically reduce the scan set to
 # Tier 1 only and lower _MAX_ORDER_BOOK_FETCHES_PER_CYCLE temporarily (ms).
-SCAN_LATENCY_REDUCE_MS: float = _safe_float("SCAN_LATENCY_REDUCE_MS", "60000")
+SCAN_LATENCY_REDUCE_MS: float = _safe_float("SCAN_LATENCY_REDUCE_MS", "35000")
 
 # ---------------------------------------------------------------------------
 # WS health-aware scan gating
