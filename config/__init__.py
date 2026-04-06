@@ -225,7 +225,7 @@ REGIME_MIN_VOLUME_USD: Dict[str, float] = {
     "VOLATILE":      float(os.getenv("VOL_FLOOR_VOLATILE",  "5000000")),
     "RANGING":       float(os.getenv("VOL_FLOOR_RANGING",   "1500000")),
     "QUIET":         float(os.getenv("VOL_FLOOR_QUIET",     "1000000")),
-    "":              float(os.getenv("VOL_FLOOR_DEFAULT",   "2000000")),  # empty string = regime unknown/unset; intentional lookup key
+    "":              float(os.getenv("VOL_FLOOR_DEFAULT",   "2000000")),  # empty string key handles unknown/unset regime states (intentional fallback)
 }
 # Symbols permanently excluded from scanning (gold-pegged tokens, micro-caps).
 # Configurable via comma-separated env var; defaults cover the known junk pairs.

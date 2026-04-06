@@ -881,9 +881,9 @@ class Scanner:
                 continue
             # 1. Volume pre-filter — regime-aware volume floor.
             # Use the current market regime to pick the right threshold;
-            # falls back to SCAN_MIN_VOLUME_USD when regime is unknown.
+            # falls back to SCAN_MIN_VOLUME_USD when regime is unknown/None/unset.
             _vol_floor = REGIME_MIN_VOLUME_USD.get(
-                getattr(self, "_last_market_regime", ""),
+                getattr(self, "_last_market_regime", None) or "",
                 SCAN_MIN_VOLUME_USD,
             )
             if info.volume_24h_usd < _vol_floor:
