@@ -12,7 +12,13 @@ from typing import Any, Optional
 
 import aiohttp
 
-from config import SIGNAL_TYPE_LABELS, TELEGRAM_ADMIN_CHAT_ID, TELEGRAM_BOT_TOKEN
+from config import (
+    SIGNAL_TYPE_LABELS,
+    TELEGRAM_ACTIVE_CHANNEL_ID,
+    TELEGRAM_ADMIN_CHAT_ID,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_FREE_CHANNEL_ID,
+)
 from src.channels.base import Signal
 from src.smc import Direction
 from src.utils import fmt_price, fmt_ts, get_logger
@@ -128,6 +134,30 @@ class TelegramBot:
         if TELEGRAM_ADMIN_CHAT_ID:
             return await self.send_message(TELEGRAM_ADMIN_CHAT_ID, f"🔔 *Admin Alert*\n{text}")
         return False
+
+    async def post_to_free_channel(self, text: str) -> bool:
+        """Post a message to the free (public) Telegram channel.
+
+        Used by the content engine (scheduler, radar alerts, performance cards)
+        to send non-signal content to prospective subscribers.  Returns False
+        silently when ``TELEGRAM_FREE_CHANNEL_ID`` is not configured.
+        """
+        if not TELEGRAM_FREE_CHANNEL_ID:
+            log.debug("TELEGRAM_FREE_CHANNEL_ID not configured — free channel post skipped")
+            return False
+        return await self.send_message(TELEGRAM_FREE_CHANNEL_ID, text)
+
+    async def post_to_active_channel(self, text: str) -> bool:
+        """Post a message to the active (paid) Telegram channel.
+
+        Used by the content engine to send signal-closed updates and other
+        premium content.  Returns False silently when
+        ``TELEGRAM_ACTIVE_CHANNEL_ID`` is not configured.
+        """
+        if not TELEGRAM_ACTIVE_CHANNEL_ID:
+            log.debug("TELEGRAM_ACTIVE_CHANNEL_ID not configured — active channel post skipped")
+            return False
+        return await self.send_message(TELEGRAM_ACTIVE_CHANNEL_ID, text)
 
     async def send_photo(self, chat_id: str, photo_bytes: bytes, caption: str = "") -> bool:
         """Send a photo to *chat_id* using multipart form data. Returns True on success.
