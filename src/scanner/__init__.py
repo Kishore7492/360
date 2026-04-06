@@ -29,6 +29,7 @@ from config import (
     SCAN_LATENCY_REDUCE_MS,
     SCAN_LATENCY_WARN_MS,
     SCAN_MIN_VOLUME_USD,
+    SCAN_SYMBOL_BLACKLIST,
     SEED_TIMEFRAMES,
     SIGNAL_SCAN_COOLDOWN_SECONDS,
     SIGNAL_VALID_FOR_MINUTES,
@@ -157,6 +158,10 @@ _SCALP_CHANNELS: frozenset = frozenset({
     "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD",
     "360_SCALP_VWAP", "360_SCALP_OBI",
 })
+
+# Symbols permanently excluded from scanning — loaded from config to allow
+# runtime override via the SCAN_SYMBOL_BLACKLIST env var.
+_SYMBOL_BLACKLIST: frozenset = frozenset(SCAN_SYMBOL_BLACKLIST)
 
 # Maximum number of symbols scanned concurrently
 _MAX_CONCURRENT_SCANS: int = 20
@@ -478,6 +483,12 @@ class Scanner:
         # short-circuit order book fetches.
         self._depth_breaker_open_this_cycle: bool = False
 
+        # Monotonic timestamp (seconds) when the depth circuit breaker first
+        # opened in the current continuous open streak.  Reset to 0.0 when
+        # the breaker closes.  Used to auto-reset the breaker after
+        # DEPTH_CIRCUIT_BREAKER_COOLDOWN seconds have elapsed.
+        self._depth_breaker_open_since: float = 0.0
+
         # Suppression telemetry: counters per suppression reason, accumulated
         # over each scan cycle and logged as a summary at cycle end.
         self._suppression_counters: Dict[str, int] = defaultdict(int)
@@ -630,6 +641,26 @@ class Scanner:
                 (self.futures_client is not None and self.futures_client.is_depth_circuit_open)
                 or (self.spot_client is not None and self.spot_client.is_depth_circuit_open)
             )
+
+            if self._depth_breaker_open_this_cycle:
+                if self._depth_breaker_open_since == 0.0:
+                    self._depth_breaker_open_since = time.monotonic()
+                elif (
+                    time.monotonic() - self._depth_breaker_open_since
+                    >= DEPTH_CIRCUIT_BREAKER_COOLDOWN
+                ):
+                    log.info(
+                        "Depth circuit breaker auto-reset after {:.0f}s open",
+                        time.monotonic() - self._depth_breaker_open_since,
+                    )
+                    if self.futures_client is not None:
+                        self.futures_client.reset_depth_circuit()
+                    if self.spot_client is not None:
+                        self.spot_client.reset_depth_circuit()
+                    self._depth_breaker_open_this_cycle = False
+                    self._depth_breaker_open_since = 0.0
+            else:
+                self._depth_breaker_open_since = 0.0
 
             try:
                 # Prioritise high-volume pairs for order book fetches
@@ -931,9 +962,13 @@ class Scanner:
             for s in self.router.active_signals.values()
         }
         result: List[Tuple[str, Any]] = []
-        skipped_volume = skipped_all_active = skipped_all_cooldown = 0
+        skipped_volume = skipped_all_active = skipped_all_cooldown = skipped_blacklist = 0
 
         for sym, info in pairs:
+            # 0. Blacklist filter — gold-pegged / micro-cap junk that will never signal
+            if sym in _SYMBOL_BLACKLIST:
+                skipped_blacklist += 1
+                continue
             # 1. Volume pre-filter
             if info.volume_24h_usd < SCAN_MIN_VOLUME_USD:
                 skipped_volume += 1
@@ -952,12 +987,12 @@ class Scanner:
                 continue
             result.append((sym, info))
 
-        if skipped_volume or skipped_all_active or skipped_all_cooldown:
+        if skipped_volume or skipped_all_active or skipped_all_cooldown or skipped_blacklist:
             log.debug(
                 "Pre-filter: %d/%d symbols kept "
-                "(skipped %d low-volume, %d all-active, %d all-cooldown)",
+                "(skipped %d blacklist, %d low-volume, %d all-active, %d all-cooldown)",
                 len(result), len(pairs),
-                skipped_volume, skipped_all_active, skipped_all_cooldown,
+                skipped_blacklist, skipped_volume, skipped_all_active, skipped_all_cooldown,
             )
         return result
 
