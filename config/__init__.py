@@ -1213,3 +1213,25 @@ WS_PRIORITY_DEDICATED_PAIRS: List[str] = [
 SUPPRESSION_TELEMETRY_ENABLED: bool = _safe_bool("SUPPRESSION_TELEMETRY_ENABLED", "true")
 #: Maximum number of suppression events to keep in memory.
 SUPPRESSION_TELEMETRY_MAX_EVENTS: int = _safe_int("SUPPRESSION_TELEMETRY_MAX_EVENTS", "10000")
+
+# ---------------------------------------------------------------------------
+# PR2 — AI Engagement Layer
+# ---------------------------------------------------------------------------
+#: Master switch — enable/disable the content engine entirely.
+CONTENT_ENGINE_ENABLED: bool = _safe_bool("CONTENT_ENGINE_ENABLED", "true")
+#: Enable/disable the radar channel evaluator.
+RADAR_CHANNEL_ENABLED: bool = _safe_bool("RADAR_CHANNEL_ENABLED", "true")
+#: Enable/disable the silence breaker (auto-post when channel is quiet).
+SILENCE_BREAKER_ENABLED: bool = _safe_bool("SILENCE_BREAKER_ENABLED", "true")
+#: Minimum confidence score to trigger a radar alert (free channel).
+RADAR_ALERT_MIN_CONFIDENCE: int = _safe_int("RADAR_ALERT_MIN_CONFIDENCE", "65")
+#: Confidence score at which "watching closely" variant is used for radar alerts.
+RADAR_ALERT_WATCHING_CLOSELY_CONFIDENCE: int = _safe_int("RADAR_ALERT_WATCHING_CLOSELY_CONFIDENCE", "70")
+#: Per-symbol cooldown (seconds) between radar alerts for the same symbol.
+RADAR_PER_SYMBOL_COOLDOWN_SECONDS: int = _safe_int("RADAR_PER_SYMBOL_COOLDOWN_SECONDS", "900")
+#: Maximum number of radar alerts posted per hour (cross-symbol rate limit).
+RADAR_MAX_PER_HOUR: int = _safe_int("RADAR_MAX_PER_HOUR", "3")
+#: Hours of channel silence before the silence breaker auto-posts content.
+SILENCE_BREAKER_HOURS: int = _safe_int("SILENCE_BREAKER_HOURS", "3")
+#: GPT model used for content generation (gpt-4o-mini is cost-efficient and fast).
+CONTENT_GPT_MODEL: str = os.getenv("CONTENT_GPT_MODEL", "gpt-4o-mini")

@@ -64,6 +64,8 @@ from src.websocket_manager import WebSocketManager
 from src.redis_client import RedisClient
 from src.signal_queue import SignalQueue
 from src.state_cache import StateCache
+from src.scheduler import ContentScheduler
+from src.radar_channel import RadarChannel
 from config import (
     CIRCUIT_BREAKER_MAX_CONSECUTIVE_SL,
     CIRCUIT_BREAKER_MAX_HOURLY_SL,
@@ -267,6 +269,24 @@ class CryptoSignalEngine:
             self.router.publish_highlight(sig, tp, pnl)
         )
 
+        # PR2: Wire the engine context provider into the trade monitor so that
+        # signal-closed (TP/SL hit) AI posts are generated and sent automatically.
+        self.monitor.engine_context_fn = self._get_engine_context
+
+        # PR2: Content scheduler — fires daily briefings, session opens, weekly card.
+        self._content_scheduler = ContentScheduler(
+            post_to_free=self.telegram.post_to_free_channel,
+            post_to_active=self.telegram.post_to_active_channel,
+            engine_context_fn=self._get_engine_context,
+        )
+
+        # PR2: Radar channel — evaluates soft-disabled channels and posts radar
+        # alerts to the free channel.
+        self._radar_channel = RadarChannel(
+            post_to_free=self.telegram.post_to_free_channel,
+            scanner_context_fn=self._get_scanner_context,
+        )
+
         # Command handler (delegates all Telegram commands)
         self._command_handler = CommandHandler(
             telegram=self.telegram,
@@ -303,6 +323,57 @@ class CryptoSignalEngine:
             self._signal_history.append(sig)
             self._signal_history = self._signal_history[-500:]
         self.router.remove_signal(signal_id)
+
+    def _get_engine_context(self) -> dict:
+        """Return a snapshot of current engine state for content generation."""
+        regime = "RANGING"
+        try:
+            r = self._regime_detector.get_regime("BTCUSDT")
+            regime = r.regime.value if r else "RANGING"
+        except Exception:
+            pass
+
+        perf = {}
+        try:
+            stats = self._performance_tracker.get_stats()
+            perf = {
+                "wins_this_week": getattr(stats, "wins_7d", 0),
+                "losses_this_week": getattr(stats, "losses_7d", 0),
+                "avg_rr_this_week": getattr(stats, "avg_rr_7d", 0.0),
+                "best_symbol_this_week": getattr(stats, "best_symbol_7d", "—"),
+                "best_r_this_week": getattr(stats, "best_r_7d", 0.0),
+                "worst_symbol_this_week": getattr(stats, "worst_symbol_7d", ""),
+                "worst_r_this_week": getattr(stats, "worst_r_7d", 0.0),
+                "month_winrate": getattr(stats, "winrate_30d", 0.0),
+                "streak_label": "",
+            }
+        except Exception:
+            pass
+
+        top_pairs = list(self.pair_mgr.symbols)[:5] if self.pair_mgr.symbols else []
+        signals_today = len(
+            [s for s in self._signal_history if s is not None]
+        )
+
+        return {
+            "regime": regime,
+            "btc_price": "—",
+            "btc_change_pct": 0,
+            "btc_1h_change_pct": 0,
+            "top_pairs": top_pairs,
+            "signals_today": signals_today,
+            "performance": perf,
+            "key_level": "—",
+            "hours_since_signal": 0,
+            "is_active_market": False,
+        }
+
+    def _get_scanner_context(self) -> dict:
+        """Return a scanner context snapshot for the radar channel evaluator."""
+        return {
+            "channel_scores": getattr(self._scanner, "_radar_scores", {}),
+            "is_active_market": False,
+        }
 
     # ------------------------------------------------------------------
     # Pre-flight checks (delegated to Bootstrap)
