@@ -744,7 +744,7 @@ class TestFix2BtcPriceFromDataStore:
 
     def test_returns_real_price_when_data_available(self):
         engine = self._make_engine()
-        # 300 candles so both 1h and 24h deltas can be computed
+        # 300 candles — well above the 289 minimum needed for 24h change (288×5m)
         closes = [float(i + 40000) for i in range(300)]
         engine.data_store.get_candles.return_value = {"close": closes}
         ctx = engine._get_engine_context()
@@ -761,7 +761,7 @@ class TestFix2BtcPriceFromDataStore:
 
     def test_computes_24h_change(self):
         engine = self._make_engine()
-        closes = [50000.0] * 289
+        closes = [50000.0] * 289  # 289 = 288×5m periods (≈24h) + 1 current candle
         closes[-1] = 51000.0  # last candle is +2%
         engine.data_store.get_candles.return_value = {"close": closes}
         ctx = engine._get_engine_context()
@@ -953,6 +953,6 @@ class TestFix4RadarScoresPopulated:
             except Exception:
                 crashed = True  # Exception was caught — would be logged at DEBUG
 
-        # The scan loop must NOT re-raise — exception is swallowed
-        assert not crashed or True  # Either way the code survives
+        # The scan loop must NOT re-raise — exception must be caught (crashed=True confirms catch)
+        assert crashed  # Exception was caught, not re-raised
         assert chan_name not in scanner_scores
