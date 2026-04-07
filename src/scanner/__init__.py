@@ -143,7 +143,7 @@ _stat_filter = StatisticalFilter()
 _SPREAD_CACHE_TTL: float = 30.0
 
 # Timeout for the global bookTicker pre-fetch issued every scan cycle.
-_BOOK_TICKER_PREFETCH_TIMEOUT_S: float = 8.0
+_BOOK_TICKER_PREFETCH_TIMEOUT_S: float = 3.0
 
 # TTL for spread entries seeded from the global bookTicker endpoint.
 # bookTicker returns only bid/ask (no depth), so we keep the TTL shorter
@@ -522,6 +522,11 @@ class Scanner:
             exchange_mgr=exchange_mgr,
             spot_client=spot_client,
         )
+
+        # Indicator result cache: symbol → (fingerprint, indicator_dict)
+        # fingerprint is a tuple of (tf, last_close) pairs — cheap to compute,
+        # invalidates automatically whenever any timeframe gets a new candle.
+        self._indicator_cache: Dict[str, tuple] = {}
 
     # ------------------------------------------------------------------
     # Dynamic tier query helper
@@ -1067,7 +1072,22 @@ class Scanner:
         candles = self._load_candles(symbol)
         if not candles:
             return None
-        indicators = await asyncio.to_thread(self._compute_indicators, candles)
+        # Build a cheap fingerprint: tuple of (tf, last_close) for all timeframes.
+        # If candles haven't changed since last cycle, reuse cached indicators.
+        try:
+            _fp = tuple(
+                (tf, float(cd["close"][-1]) if cd.get("close") else 0.0)
+                for tf, cd in sorted(candles.items())
+            )
+        except Exception:
+            _fp = None
+        _cached = self._indicator_cache.get(symbol) if _fp is not None else None
+        if _cached is not None and _cached[0] == _fp:
+            indicators = _cached[1]
+        else:
+            indicators = await asyncio.to_thread(self._compute_indicators, candles)
+            if _fp is not None:
+                self._indicator_cache[symbol] = (_fp, indicators)
         ticks = self.data_store.ticks.get(symbol, [])
         # Use scalp-optimised sweep detection parameters: shorter lookback catches
         # recent S/R levels; wider tolerance catches institutional sweeps that
@@ -2289,6 +2309,10 @@ class Scanner:
         # Collect all signals before deciding what to emit (confluence check)
         _pending_signals: list = []
 
+        # SMC re-detect cache: deduplicate detections across channels sharing the same TF set.
+        # Key: tuple of timeframes. Value: (SMCResult, smc_data_dict)
+        _smc_cache: Dict[tuple, tuple] = {}
+
         for chan in self.channels:
             chan_name = chan.config.name
             # Skip disabled channels — flip env var to re-enable instantly
@@ -2301,26 +2325,32 @@ class Scanner:
             # channels only act on high-TF institutional sweeps.
             _ch_tfs = _CHANNEL_SMC_TIMEFRAMES.get(chan_name)
             if _ch_tfs is not None:
-                try:
-                    _smc_r = self.smc_detector.detect(
-                        symbol, ctx.candles, ticks, self.order_flow_store,
-                        lookback=SMC_SCALP_LOOKBACK,
-                        tolerance_pct=SMC_SCALP_TOLERANCE_PCT,
-                        smc_timeframes=_ch_tfs,
-                    )
-                    _new_smc_data = _smc_r.as_dict()
-                    # Carry over metadata fields added by _build_scan_context()
-                    # that are not part of the SMCResult dataclass.
-                    _new_smc_data["pair_profile"] = ctx.smc_data.get("pair_profile")
-                    _new_smc_data["regime_context"] = ctx.smc_data.get("regime_context")
-                    ctx_for_chan = _dc.replace(
-                        ctx,
-                        smc_result=_smc_r,
-                        smc_data=_new_smc_data,
-                    )
-                except Exception as _exc:
-                    log.debug("Per-channel SMC re-detect failed for {} {}: {}", symbol, chan_name, _exc)
-                    ctx_for_chan = ctx
+                _cache_key = tuple(_ch_tfs)
+                if _cache_key in _smc_cache:
+                    _smc_r, _new_smc_data = _smc_cache[_cache_key]
+                    ctx_for_chan = _dc.replace(ctx, smc_result=_smc_r, smc_data=_new_smc_data)
+                else:
+                    try:
+                        _smc_r = self.smc_detector.detect(
+                            symbol, ctx.candles, ticks, self.order_flow_store,
+                            lookback=SMC_SCALP_LOOKBACK,
+                            tolerance_pct=SMC_SCALP_TOLERANCE_PCT,
+                            smc_timeframes=_ch_tfs,
+                        )
+                        _new_smc_data = _smc_r.as_dict()
+                        # Carry over metadata fields added by _build_scan_context()
+                        # that are not part of the SMCResult dataclass.
+                        _new_smc_data["pair_profile"] = ctx.smc_data.get("pair_profile")
+                        _new_smc_data["regime_context"] = ctx.smc_data.get("regime_context")
+                        _smc_cache[_cache_key] = (_smc_r, _new_smc_data)
+                        ctx_for_chan = _dc.replace(
+                            ctx,
+                            smc_result=_smc_r,
+                            smc_data=_new_smc_data,
+                        )
+                    except Exception as _exc:
+                        log.debug("Per-channel SMC re-detect failed for {} {}: {}", symbol, chan_name, _exc)
+                        ctx_for_chan = ctx
             else:
                 ctx_for_chan = ctx
             sig, cross_verified = await self._prepare_signal(symbol, volume_24h, chan, ctx_for_chan)

@@ -1184,7 +1184,7 @@ WS_PARTIAL_HEALTH_THRESHOLD: float = float(
 
 # Maximum number of symbols to scan per cycle when WS is partially degraded.
 # Reduces REST API consumption while still providing signals for top pairs.
-WS_DEGRADED_MAX_PAIRS: int = _safe_int("WS_DEGRADED_MAX_PAIRS", "50")
+WS_DEGRADED_MAX_PAIRS: int = _safe_int("WS_DEGRADED_MAX_PAIRS", "75")
 
 # ---------------------------------------------------------------------------
 # WS reconnection resilience — escalation alert threshold
