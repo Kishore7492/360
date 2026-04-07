@@ -801,10 +801,19 @@ class Scanner:
                     # Entering protective mode — broadcast to both free and paid channels
                     self._protective_mode_active = True
                     self._protective_mode_broadcast_time = _now_mono
+                    # Build context-aware message that only mentions triggering metric(s)
+                    _trigger_parts = []
+                    if _spread_count >= _PROTECTIVE_MODE_SPREAD_THRESHOLD:
+                        _trigger_parts.append(f"spreads widened across {_spread_count} pairs")
+                    if _volatile_count >= _PROTECTIVE_MODE_VOLATILE_THRESHOLD:
+                        _trigger_parts.append(f"{_volatile_count} setups suppressed due to volatility")
+                    _trigger_str = " · ".join(_trigger_parts) if _trigger_parts else (
+                        f"Spreads widened across {_spread_count} pairs · "
+                        f"{_volatile_count} setups suppressed due to volatility"
+                    )
                     _protective_msg = (
                         "⚠️ *Market Alert — Protective Mode Active*\n\n"
-                        f"Spreads widened across {_spread_count} pairs · "
-                        f"{_volatile_count} setups suppressed due to volatility.\n\n"
+                        f"{_trigger_str.capitalize()}.\n\n"
                         "Scanner is running but holding entries until conditions stabilise. "
                         "This is normal during high-impact events — patience protects capital."
                     )
