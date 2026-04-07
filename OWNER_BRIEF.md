@@ -181,12 +181,18 @@ Every single message — signals, radar, scheduled posts — follows these rules
 
 ---
 
-### PR3 — Revenue & Subscriber Features ⏳ PLANNED (after PR2 stable)
+### PR3 — Scan Latency Fix + 75-Pair Universe Unlock ✅ MERGED
+**Business goal:** Reduce scan cycle latency from 33–40s to 8–12s. Unlock the 75-pair universe that was capped at 50 by a config mismatch.
 
-- Subscriber tier system (Free / Premium)
-- Auto-generated weekly performance image
-- `/mystats`, `/history`, `/active` subscriber commands
-- Referral tracking
+**Changes:**
+- ✅ `WS_DEGRADED_MAX_PAIRS` default raised from 50 → 75 — pairs now scan correctly
+- ✅ Indicator result cache added to Scanner — skips recomputation when candles unchanged (eliminates ~90% of thread pool work per cycle)
+- ✅ Per-channel SMC re-detect deduplicated — 4 detections per symbol → 2 (shared by TF set)
+- ✅ `_BOOK_TICKER_PREFETCH_TIMEOUT_S` reduced from 8s → 3s — eliminates up to 5s per slow Binance cycle
+
+---
+
+### PR4 — Revenue & Subscriber Features ⏳ PLANNED (after PR3 stable)
 
 ---
 
@@ -214,9 +220,10 @@ Every single message — signals, radar, scheduled posts — follows these rules
 ## 7. Current Priorities (In Order)
 
 1. ✅ PR1 merged and running on VPS
-2. 🔄 PR2 — Fix known issues, review full delivery, confirm all 5 pillars work
-3. ⏳ Monitor signal volume after PR2 (target: 10–20 signals/day)
-4. ⏳ PR3 — Revenue features (after PR2 is confirmed stable)
+2. ✅ PR2 — AI engagement layer merged and monitored
+3. 🔄 PR3 — Scan latency fix + 75-pair unlock (in progress)
+4. ⏳ Monitor signal volume after PR3 (target: 10–20 signals/day)
+5. ⏳ PR4 — Revenue features (after PR3 is confirmed stable)
 
 ---
 
@@ -248,6 +255,7 @@ Every single message — signals, radar, scheduled posts — follows these rules
 | GPT model | gpt-4o-mini | `CONTENT_GPT_MODEL` |
 | Depth CB threshold | 3 timeouts/30s | `DEPTH_CIRCUIT_BREAKER_THRESHOLD` |
 | Depth CB cooldown | 90s | `DEPTH_CIRCUIT_BREAKER_COOLDOWN` |
+| WS degraded scan cap | 75 | `WS_DEGRADED_MAX_PAIRS` |
 
 ---
 
@@ -271,6 +279,12 @@ To re-enable any as a live signal channel: set `CHANNEL_SCALP_CVD_ENABLED=true` 
 ## 10. Owner Notes (Running Log)
 
 *Add decisions, ideas, and observations here as we work. Most recent at the top.*
+
+**2026-04-07**
+- Scan latency was 33–40s due to indicator recomputation on every cycle for every symbol (7,650 indicator calculations per cycle on 75 pairs × 6 TF × 17 indicators)
+- Engine was capped at 50 pairs despite TOP50_FUTURES_COUNT=75 — WS_DEGRADED_MAX_PAIRS defaulted to 50 and spot WS partial degradation was triggering the cap every cycle
+- PR3 merged: indicator cache + SMC dedup + pair cap fix + bookTicker timeout reduction
+- Expected latency after fix: 8–12s per cycle
 
 **2026-04-06**
 - Copilot must always think as a business co-owner, not a code assistant
