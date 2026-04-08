@@ -994,9 +994,8 @@ class SignalRouter:
             )
             # Post expiry notification to Telegram (fire-and-forget)
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(self._notify_signal_expiry(sig, now))
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._notify_signal_expiry(sig, now))
             except RuntimeError:
                 pass
 

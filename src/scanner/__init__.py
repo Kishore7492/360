@@ -634,7 +634,7 @@ class Scanner:
                     self._promoted_pairs[sym] = remaining
                     now_promoted.append(sym)
 
-        return now_promoted
+        return now_promoted[:SURGE_PROMOTION_MAX_PAIRS]
 
     async def scan_loop(self) -> None:
         """Periodic scan over all pairs / channels."""
@@ -810,7 +810,7 @@ class Scanner:
                     _added = 0
                     _promoted_syms = {sym for sym, _ in filtered_pairs}
                     filtered_pairs = list(filtered_pairs)  # ensure mutable list once
-                    for _promo_sym in _promoted[:SURGE_PROMOTION_MAX_PAIRS]:
+                    for _promo_sym in _promoted:
                         if _promo_sym not in _promoted_syms:
                             _promo_info = self.pair_mgr.pairs.get(_promo_sym)
                             if _promo_info is not None:
