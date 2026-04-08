@@ -144,32 +144,8 @@ jobs:
           echo "  SIGNAL PERFORMANCE HISTORY"
           echo "$SEP"
           echo "--- Last 10 Signals ---"
-          docker exec -i 360scalp-v2-engine python3 - << 'PYEOF' 2>/dev/null || echo "Container not available"
-import json, sys, datetime
-try:
-    with open("/app/data/signal_performance.json") as f:
-        data = json.load(f)
-    if not data:
-        print("No signal history yet")
-        sys.exit(0)
-    records = sorted(data, key=lambda x: x.get("timestamp", 0), reverse=True)[:10]
-    print(f"{'#':<3} {'Symbol':<14} {'Dir':<6} {'Setup':<30} {'Entry':>12} {'Conf':>6} {'PnL%':>7} {'Outcome':<12} {'Time'}")
-    print("-" * 110)
-    for i, r in enumerate(records, 1):
-        ts = r.get("timestamp", 0)
-        ts_str = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M") if ts else "?"
-        outcome = r.get("outcome_label") or r.get("outcome") or r.get("status") or "?"
-        setup = r.get("setup_class") or r.get("channel") or r.get("setup_type") or r.get("signal_type") or "?"
-        entry = r.get("entry") or r.get("entry_price") or 0
-        pnl = r.get("pnl_pct") or 0.0
-        print(f"{i:<3} {r.get('symbol','?'):<14} {r.get('direction','?'):<6} {setup:<30} {entry:>12.4f} {r.get('confidence',0):>6.1f} {pnl:>+7.2f}% {outcome:<12} {ts_str}")
-except FileNotFoundError:
-    print("No signal history yet")
-except json.JSONDecodeError:
-    print("Signal history file could not be parsed")
-except Exception as e:
-    print(f"Error reading signal history: {e}")
-PYEOF
+          PYCODE=$(echo 'aW1wb3J0IGpzb24sIHN5cywgZGF0ZXRpbWUKdHJ5OgogICAgd2l0aCBvcGVuKCIvYXBwL2RhdGEvc2lnbmFsX3BlcmZvcm1hbmNlLmpzb24iKSBhcyBmOgogICAgICAgIGRhdGEgPSBqc29uLmxvYWQoZikKICAgIGlmIG5vdCBkYXRhOgogICAgICAgIHByaW50KCJObyBzaWduYWwgaGlzdG9yeSB5ZXQiKQogICAgICAgIHN5cy5leGl0KDApCiAgICByZWNvcmRzID0gc29ydGVkKGRhdGEsIGtleT1sYW1iZGEgeDogeC5nZXQoInRpbWVzdGFtcCIsIDApLCByZXZlcnNlPVRydWUpWzoxMF0KICAgIHByaW50KGYieycjJzo8M30geydTeW1ib2wnOjwxNH0geydEaXInOjw2fSB7J1NldHVwJzo8MzB9IHsnRW50cnknOj4xMn0geydDb25mJzo+Nn0geydQbkwlJzo+N30geydPdXRjb21lJzo8MTJ9IHsnVGltZSd9IikKICAgIHByaW50KCItIiAqIDExMCkKICAgIGZvciBpLCByIGluIGVudW1lcmF0ZShyZWNvcmRzLCAxKToKICAgICAgICB0cyA9IHIuZ2V0KCJ0aW1lc3RhbXAiLCAwKQogICAgICAgIHRzX3N0ciA9IGRhdGV0aW1lLmRhdGV0aW1lLmZyb210aW1lc3RhbXAodHMsIHR6PWRhdGV0aW1lLnRpbWV6b25lLnV0Yykuc3RyZnRpbWUoIiVZLSVtLSVkVCVIOiVNIikgaWYgdHMgZWxzZSAiPyIKICAgICAgICBvdXRjb21lID0gci5nZXQoIm91dGNvbWVfbGFiZWwiKSBvciByLmdldCgib3V0Y29tZSIpIG9yIHIuZ2V0KCJzdGF0dXMiKSBvciAiPyIKICAgICAgICBzZXR1cCA9IHIuZ2V0KCJzZXR1cF9jbGFzcyIpIG9yIHIuZ2V0KCJjaGFubmVsIikgb3Igci5nZXQoInNldHVwX3R5cGUiKSBvciByLmdldCgic2lnbmFsX3R5cGUiKSBvciAiPyIKICAgICAgICBlbnRyeSA9IHIuZ2V0KCJlbnRyeSIpIG9yIHIuZ2V0KCJlbnRyeV9wcmljZSIpIG9yIDAKICAgICAgICBwbmwgPSByLmdldCgicG5sX3BjdCIpIG9yIDAuMAogICAgICAgIHByaW50KGYie2k6PDN9IHtyLmdldCgnc3ltYm9sJywnPycpOjwxNH0ge3IuZ2V0KCdkaXJlY3Rpb24nLCc/Jyk6PDZ9IHtzZXR1cDo8MzB9IHtlbnRyeTo+MTIuNGZ9IHtyLmdldCgnY29uZmlkZW5jZScsMCk6PjYuMWZ9IHtwbmw6Pis3LjJmfSUge291dGNvbWU6PDEyfSB7dHNfc3RyfSIpCmV4Y2VwdCBGaWxlTm90Rm91bmRFcnJvcjoKICAgIHByaW50KCJObyBzaWduYWwgaGlzdG9yeSB5ZXQiKQpleGNlcHQganNvbi5KU09ORGVjb2RlRXJyb3I6CiAgICBwcmludCgiU2lnbmFsIGhpc3RvcnkgZmlsZSBjb3VsZCBub3QgYmUgcGFyc2VkIikKZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgcHJpbnQoZiJFcnJvciByZWFkaW5nIHNpZ25hbCBoaXN0b3J5OiB7ZX0iKQo=' | base64 -d)
+          echo "$PYCODE" | docker exec -i 360scalp-v2-engine python3 2>/dev/null || echo "Container not available"
 
           echo ""
           echo "$SEP"
