@@ -1788,13 +1788,14 @@ class ScalpChannel(BaseChannel):
         if close <= 0:
             return None
 
-        # Hidden divergence detection
+        # CVD divergence detection (price vs CVD divergence signals absorption)
         if direction == Direction.LONG:
             price_low_early = min(closes[-20:-10])
             price_low_late = min(closes[-10:])
             cvd_low_early = min(cvd_floats[-20:-10])
             cvd_low_late = min(cvd_floats[-10:])
-            # Hidden bullish: price makes higher low, CVD also makes higher low
+            # Bullish CVD divergence: price makes lower low but CVD makes higher low
+            # (buyers absorbing selling pressure — continuation signal in uptrend)
             if not (price_low_late < price_low_early and cvd_low_late > cvd_low_early):
                 return None
         else:
@@ -1802,7 +1803,8 @@ class ScalpChannel(BaseChannel):
             price_high_late = max(closes[-10:])
             cvd_high_early = max(cvd_floats[-20:-10])
             cvd_high_late = max(cvd_floats[-10:])
-            # Hidden bearish: price makes lower high, CVD also makes lower high
+            # Bearish CVD divergence: price makes higher high but CVD makes lower high
+            # (sellers absorbing buying pressure — continuation signal in downtrend)
             if not (price_high_late > price_high_early and cvd_high_late < cvd_high_early):
                 return None
 
