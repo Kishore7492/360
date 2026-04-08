@@ -577,6 +577,141 @@ class Scanner:
     # Public interface
     # ------------------------------------------------------------------
 
+    async def diagnose_pair(self, symbol: str) -> dict:
+        """Run the signal pipeline in dry-run mode, returning gate-by-gate diagnostics."""
+        results: dict = {"symbol": symbol, "gates": {}, "signal_paths": {}, "error": None}
+        try:
+            candles: dict = {}
+            for tf in ("1m", "5m", "15m", "1h", "4h"):
+                c = self.data_store.get_candles(symbol, tf)
+                if c:
+                    candles[tf] = c
+
+            m5 = candles.get("5m", {})
+            closes_5m = m5.get("close", [])
+            if not closes_5m:
+                results["error"] = f"No 5m candle data for {symbol}"
+                return results
+
+            close = float(closes_5m[-1])
+
+            indicators: dict = {}
+            for tf in ("1m", "5m", "15m", "1h"):
+                ind = self.data_store.get_indicators(symbol, tf)
+                if ind:
+                    indicators[tf] = ind
+
+            ind5 = indicators.get("5m", {})
+
+            spread_pct = self.data_store.get_spread(symbol) or 0.0
+            volume_24h = self.data_store.get_volume(symbol) or 0.0
+
+            regime_result = self.data_store.get_regime(symbol)
+            regime = str(getattr(regime_result, "regime", "RANGING")) if regime_result else "RANGING"
+
+            smc_data = self.data_store.get_smc(symbol) or {}
+
+            gates = results["gates"]
+
+            gates["regime"] = {"value": regime, "pass": True}
+
+            spread_threshold = 0.02
+            gates["spread"] = {
+                "value": round(spread_pct, 4),
+                "threshold": spread_threshold,
+                "pass": spread_pct < spread_threshold,
+            }
+
+            from config import REGIME_MIN_VOLUME_USD
+            vol_floor = REGIME_MIN_VOLUME_USD.get(regime, 1_000_000.0)
+            gates["volume"] = {
+                "value": round(volume_24h, 0),
+                "floor": vol_floor,
+                "pass": volume_24h >= vol_floor,
+            }
+
+            sweeps = smc_data.get("sweeps", [])
+            fvgs = smc_data.get("fvg", [])
+            orderblocks = smc_data.get("orderblocks", [])
+            gates["smc"] = {
+                "sweeps": len(sweeps),
+                "fvgs": len(fvgs),
+                "orderblocks": len(orderblocks),
+                "pass": bool(sweeps or fvgs or orderblocks),
+            }
+
+            ema9 = ind5.get("ema9_last")
+            ema21 = ind5.get("ema21_last")
+            ema50 = ind5.get("ema50_last")
+            gates["ema"] = {
+                "ema9": ema9,
+                "ema21": ema21,
+                "ema50": ema50,
+                "aligned_long": bool(ema9 and ema21 and ema9 > ema21),
+                "aligned_short": bool(ema9 and ema21 and ema9 < ema21),
+            }
+
+            momentum = ind5.get("momentum_last")
+            gates["momentum"] = {"value": momentum, "threshold": 0.15}
+
+            macd_hist = ind5.get("macd_histogram_last")
+            gates["macd"] = {
+                "histogram": macd_hist,
+                "direction": "bullish" if macd_hist and macd_hist > 0 else "bearish",
+            }
+
+            rsi = ind5.get("rsi_last")
+            gates["rsi"] = {"value": rsi}
+
+            cvd_data = smc_data.get("cvd")
+            funding_rate = smc_data.get("funding_rate")
+            gates["order_flow"] = {
+                "cvd_available": cvd_data is not None,
+                "funding_rate": funding_rate,
+            }
+
+            from datetime import datetime, timezone as _tz
+            now_hour = datetime.now(_tz.utc).hour
+            in_kill_zone = (7 <= now_hour < 10) or (12 <= now_hour < 16)
+            gates["kill_zone"] = {"hour_utc": now_hour, "active": in_kill_zone}
+
+            from src.channels.scalp import ScalpChannel
+            ch = ScalpChannel()
+            for method_name in (
+                "_evaluate_standard",
+                "_evaluate_trend_pullback",
+                "_evaluate_liquidation_reversal",
+                "_evaluate_whale_momentum",
+                "_evaluate_volume_surge_breakout",
+                "_evaluate_breakdown_short",
+                "_evaluate_opening_range_breakout",
+                "_evaluate_sr_flip_retest",
+                "_evaluate_funding_extreme",
+                "_evaluate_quiet_compression_break",
+                "_evaluate_divergence_continuation",
+            ):
+                method = getattr(ch, method_name, None)
+                if method is None:
+                    continue
+                try:
+                    sig = method(symbol, candles, indicators, smc_data, spread_pct, volume_24h, regime)
+                    if sig is not None:
+                        results["signal_paths"][method_name] = {
+                            "fired": True,
+                            "direction": sig.direction.value,
+                            "confidence": sig.confidence,
+                            "setup_class": sig.setup_class,
+                        }
+                    else:
+                        results["signal_paths"][method_name] = {"fired": False}
+                except Exception as exc:
+                    results["signal_paths"][method_name] = {"fired": False, "error": str(exc)}
+
+        except Exception as exc:
+            results["error"] = str(exc)
+
+        return results
+
     def _update_volume_baseline(self, sorted_pairs_set: set) -> List[str]:
         """Detect volume surge events in the full pair universe and temporarily
         promote non-scanned pairs into the scan cycle.

@@ -208,6 +208,10 @@ SCAN_MIN_VOLUME_USD: float = _safe_float("SCAN_MIN_VOLUME_USD", "1000000")
 SURGE_VOLUME_MULTIPLIER: float = _safe_float("SURGE_VOLUME_MULTIPLIER", "3.0")
 #: Volume multiplier vs previous baseline required to promote a non-scanned pair.
 SURGE_PROMOTION_VOLUME_MULTIPLIER: float = _safe_float("SURGE_PROMOTION_VOLUME_MULT", "5.0")
+#: Seconds between status-pulse messages for each open signal.
+SIGNAL_PULSE_INTERVAL_SECONDS: int = _safe_int("SIGNAL_PULSE_INTERVAL_SECONDS", "1800")
+#: Funding rate absolute value above/below which extreme funding signals fire.
+FUNDING_RATE_EXTREME_THRESHOLD: float = _safe_float("FUNDING_RATE_EXTREME_THRESHOLD", "0.001")
 #: Maximum number of dynamically promoted pairs per scan cycle.
 SURGE_PROMOTION_MAX_PAIRS: int = _safe_int("SURGE_PROMOTION_MAX_PAIRS", "5")
 
@@ -742,6 +746,11 @@ SIGNAL_TYPE_LABELS: Dict[str, str] = {
     "MULTI_STRATEGY_CONFLUENCE":     "🌟 MULTI-STRATEGY",
     "VOLUME_SURGE_BREAKOUT":         "🚀 SURGE BREAKOUT",
     "BREAKDOWN_SHORT":               "📉 BREAKDOWN SHORT",
+    "OPENING_RANGE_BREAKOUT":        "Opening Range Breakout",
+    "SR_FLIP_RETEST":                "S/R Flip Retest",
+    "FUNDING_EXTREME_SIGNAL":        "Funding Extreme Signal",
+    "QUIET_COMPRESSION_BREAK":       "Quiet Compression Break",
+    "DIVERGENCE_CONTINUATION":       "Divergence Continuation",
 }
 
 CHANNEL_EMOJIS: Dict[str, str] = {

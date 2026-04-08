@@ -184,6 +184,98 @@ async def handle_ask(args: List[str], ctx: CommandContext) -> None:
     )
 
 
+@registry.command("/why", group="signals", help_text="Gate-by-gate diagnostic: /why BTCUSDT")
+async def handle_why(args: List[str], ctx: CommandContext) -> None:
+    if not args:
+        await ctx.reply("Usage: /why <symbol>  e.g. /why BTCUSDT")
+        return
+    symbol = args[0].upper().strip()
+    if not symbol.endswith("USDT"):
+        symbol = symbol + "USDT"
+
+    if ctx.scanner is None:
+        await ctx.reply("❌ Scanner not available.")
+        return
+
+    diagnose_fn = getattr(ctx.scanner, "diagnose_pair", None)
+    if diagnose_fn is None:
+        await ctx.reply("❌ diagnose_pair not available on scanner.")
+        return
+
+    try:
+        result = await diagnose_fn(symbol)
+    except Exception as exc:
+        await ctx.reply(f"❌ Error running diagnostics: {exc}")
+        return
+
+    if result.get("error"):
+        await ctx.reply(f"❌ {result['error']}")
+        return
+
+    gates = result.get("gates", {})
+    paths = result.get("signal_paths", {})
+
+    def fmt_pass(p: bool) -> str:
+        return "✅" if p else "❌"
+
+    lines = [f"🔍 *Diagnostic: {symbol}*\n"]
+
+    regime_g = gates.get("regime", {})
+    lines.append(f"Regime: {regime_g.get('value', '?')}")
+
+    spread_g = gates.get("spread", {})
+    lines.append(f"Spread: {spread_g.get('value', '?'):.4f}% {fmt_pass(spread_g.get('pass', False))} (< {spread_g.get('threshold', 0.02):.2f}%)")
+
+    vol_g = gates.get("volume", {})
+    vol_val = vol_g.get("value", 0)
+    vol_floor = vol_g.get("floor", 0)
+    lines.append(f"Volume: ${vol_val:,.0f} {fmt_pass(vol_g.get('pass', False))} (floor ${vol_floor:,.0f})")
+
+    smc_g = gates.get("smc", {})
+    lines.append(f"SMC: {smc_g.get('sweeps', 0)} sweeps, {smc_g.get('fvgs', 0)} FVG {fmt_pass(smc_g.get('pass', False))}")
+
+    ema_g = gates.get("ema", {})
+    ema9 = ema_g.get("ema9")
+    ema21 = ema_g.get("ema21")
+    if ema9 and ema21:
+        ema_dir = "ema9 > ema21" if ema9 > ema21 else "ema9 < ema21"
+    else:
+        ema_dir = "?"
+    lines.append(f"EMA: {ema_dir}")
+
+    mom_g = gates.get("momentum", {})
+    lines.append(f"Momentum: {mom_g.get('value', '?')}")
+
+    macd_g = gates.get("macd", {})
+    lines.append(f"MACD: {macd_g.get('direction', '?')}")
+
+    rsi_g = gates.get("rsi", {})
+    lines.append(f"RSI: {rsi_g.get('value', '?')}")
+
+    of_g = gates.get("order_flow", {})
+    fund = of_g.get("funding_rate")
+    fund_str = f"{fund:.4f}" if fund is not None else "N/A"
+    lines.append(f"Order Flow: CVD {'✅' if of_g.get('cvd_available') else '❌'} | Funding: {fund_str}")
+
+    kz_g = gates.get("kill_zone", {})
+    kz_str = "active ✅" if kz_g.get("active") else "inactive ⚠️"
+    lines.append(f"Kill Zone: {kz_str} (UTC {kz_g.get('hour_utc', '?')}:xx)")
+
+    lines.append("\n*Signal paths tried:*")
+    for path_name, path_result in paths.items():
+        short_name = path_name.replace("_evaluate_", "").upper()
+        if path_result.get("fired"):
+            conf = path_result.get("confidence", 0)
+            direction = path_result.get("direction", "?")
+            lines.append(f"✅ {short_name}: {direction} conf={conf:.0f}")
+        else:
+            err = path_result.get("error", "")
+            err_str = f" ({err})" if err else ""
+            lines.append(f"❌ {short_name}: None{err_str}")
+
+    await ctx.reply("\n".join(lines))
+
+
 @registry.command("/signal_stats", admin=True, group="signals", help_text="Signal quality stats")
 async def handle_signal_stats(args: List[str], ctx: CommandContext) -> None:
     if ctx.performance_tracker is None:

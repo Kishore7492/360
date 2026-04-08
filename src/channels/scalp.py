@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
-from config import CHANNEL_SCALP, SURGE_VOLUME_MULTIPLIER
+from config import CHANNEL_SCALP, SURGE_VOLUME_MULTIPLIER, FUNDING_RATE_EXTREME_THRESHOLD
 from src.channels.base import BaseChannel, Signal, build_channel_signal
 from src.filters import (
     check_adx,
@@ -132,6 +132,11 @@ class ScalpChannel(BaseChannel):
             (self._evaluate_whale_momentum,        "order_flow"),
             (self._evaluate_volume_surge_breakout, "volume"),
             (self._evaluate_breakdown_short,       "volume"),
+            (self._evaluate_opening_range_breakout,  "trend"),
+            (self._evaluate_sr_flip_retest,          "order_flow"),
+            (self._evaluate_funding_extreme,         "order_flow"),
+            (self._evaluate_quiet_compression_break, "volume"),
+            (self._evaluate_divergence_continuation, "order_flow"),
         ):
             sig = evaluator(symbol, candles, indicators, smc_data, spread_pct, volume_24h_usd, regime)
             if sig is not None:
@@ -1093,6 +1098,812 @@ class ScalpChannel(BaseChannel):
         sig.trailing_stage = 0
         sig.partial_close_pct = 0.0
         sig.confidence = min(100.0, sig.confidence + 8.0)
+        return sig
+
+    # ------------------------------------------------------------------
+    # OPENING_RANGE_BREAKOUT path
+    # First 4 candles of London/NY session form a range; breakout fires on
+    # close beyond range_high/low with volume + EMA alignment + SMC basis.
+    # ------------------------------------------------------------------
+
+    def _evaluate_opening_range_breakout(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """OPENING_RANGE_BREAKOUT: session opening-range breakout with SMC basis."""
+        now_hour = datetime.now(timezone.utc).hour
+        # Only active during London (07-09 UTC) or NY (12-14 UTC)
+        in_london = 7 <= now_hour < 9
+        in_ny = 12 <= now_hour < 14
+        if not (in_london or in_ny):
+            return None
+
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper in ("QUIET", "RANGING"):
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 20:
+            return None
+
+        closes = m5.get("close", [])
+        highs = m5.get("high", [])
+        lows = m5.get("low", [])
+        volumes = m5.get("volume", [])
+        if len(closes) < 20 or len(highs) < 20 or len(lows) < 20 or len(volumes) < 21:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        # Opening range = first 4 candles of session window (candles[-8:-4])
+        range_highs = [float(h) for h in highs[-8:-4]]
+        range_lows = [float(l) for l in lows[-8:-4]]
+        if not range_highs or not range_lows:
+            return None
+        range_high = max(range_highs)
+        range_low = min(range_lows)
+        range_height = range_high - range_low
+        if range_height <= 0:
+            return None
+
+        close = float(closes[-1])
+        if close <= 0:
+            return None
+
+        # Entry direction
+        if close > range_high:
+            direction = Direction.LONG
+        elif close < range_low:
+            direction = Direction.SHORT
+        else:
+            return None
+
+        # Volume: current candle >= 1.5x 20-candle avg
+        avg_vol = sum(float(v) for v in volumes[-21:-1]) / 20.0 if len(volumes) >= 21 else 0.0
+        current_vol = float(volumes[-1])
+        if avg_vol <= 0 or current_vol < 1.5 * avg_vol:
+            return None
+
+        ind = indicators.get("5m", {})
+        ema9 = ind.get("ema9_last")
+        ema21 = ind.get("ema21_last")
+        if ema9 is None or ema21 is None:
+            return None
+
+        # EMA9 aligned in signal direction
+        if direction == Direction.LONG and ema9 <= ema21:
+            return None
+        if direction == Direction.SHORT and ema9 >= ema21:
+            return None
+
+        # SMC basis: at least one FVG or orderblock
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        if not (fvgs or orderblocks):
+            return None
+
+        # SL and TP
+        if direction == Direction.LONG:
+            sl = range_low * (1 - 0.001)
+            tp1 = close + range_height * 1.0
+            tp2 = close + range_height * 1.5
+            tp3 = close + range_height * 2.0
+        else:
+            sl = range_high * (1 + 0.001)
+            tp1 = close - range_height * 1.0
+            tp2 = close - range_height * 1.5
+            tp3 = close - range_height * 2.0
+
+        sl_dist = abs(close - sl)
+        if sl_dist <= 0:
+            return None
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        profile = smc_data.get("pair_profile")
+        atr_val = ind.get("atr_last", close * 0.002)
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="ORB",
+            atr_val=atr_val,
+            setup_class="OPENING_RANGE_BREAKOUT",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
+        sig.confidence = min(100.0, sig.confidence + 5.0)
+        return sig
+
+    # ------------------------------------------------------------------
+    # SR_FLIP_RETEST path
+    # Prior swing high/low flipped; price retests with rejection candle.
+    # ------------------------------------------------------------------
+
+    def _evaluate_sr_flip_retest(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """SR_FLIP_RETEST: support/resistance flip retest with rejection candle."""
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper == "VOLATILE":
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 55:
+            return None
+
+        closes = m5.get("close", [])
+        highs = m5.get("high", [])
+        lows = m5.get("low", [])
+        opens = m5.get("open", [])
+        if len(closes) < 55 or len(highs) < 55 or len(lows) < 55 or len(opens) < 1:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        close = float(closes[-1])
+        if close <= 0:
+            return None
+
+        prior_highs = [float(h) for h in highs[-50:-5]]
+        prior_lows = [float(l) for l in lows[-50:-5]]
+        recent_highs = [float(h) for h in highs[-5:]]
+        recent_lows = [float(l) for l in lows[-5:]]
+
+        prior_swing_high = max(prior_highs)
+        prior_swing_low = min(prior_lows)
+
+        # Bullish flip: recent high broke prior swing high → LONG
+        if max(recent_highs) > prior_swing_high:
+            direction = Direction.LONG
+            level = prior_swing_high
+        # Bearish flip: recent low broke prior swing low → SHORT
+        elif min(recent_lows) < prior_swing_low:
+            direction = Direction.SHORT
+            level = prior_swing_low
+        else:
+            return None
+
+        # Retest: close within 0.3% of level
+        if level <= 0 or abs(close - level) / level > 0.003:
+            return None
+
+        # Rejection candle check
+        last_open = float(opens[-1])
+        last_high = float(highs[-1])
+        last_low = float(lows[-1])
+        candle_body = abs(close - last_open)
+        if direction == Direction.LONG:
+            lower_wick = last_open - last_low if last_open > last_low else close - last_low
+            if candle_body > 0 and lower_wick < 0.5 * candle_body:
+                return None
+        else:
+            upper_wick = last_high - last_open if last_high > last_open else last_high - close
+            if candle_body > 0 and upper_wick < 0.5 * candle_body:
+                return None
+
+        ind = indicators.get("5m", {})
+        ema9 = ind.get("ema9_last")
+        ema21 = ind.get("ema21_last")
+        if ema9 is None or ema21 is None:
+            return None
+
+        if direction == Direction.LONG and ema9 <= ema21:
+            return None
+        if direction == Direction.SHORT and ema9 >= ema21:
+            return None
+
+        rsi_val = ind.get("rsi_last")
+        if rsi_val is not None:
+            if direction == Direction.LONG and rsi_val >= 70:
+                return None
+            if direction == Direction.SHORT and rsi_val <= 30:
+                return None
+
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        if not (fvgs or orderblocks):
+            return None
+
+        # SL beyond flipped level
+        if direction == Direction.LONG:
+            sl = level * (1 - 0.002)
+        else:
+            sl = level * (1 + 0.002)
+
+        sl_dist = abs(close - sl)
+        if sl_dist <= 0:
+            return None
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        # TP1: 20-candle swing high/low
+        if direction == Direction.LONG:
+            tp1 = max(float(h) for h in highs[-21:-1]) if len(highs) >= 21 else 0.0
+            if tp1 <= close:
+                tp1 = close + sl_dist * 1.5
+        else:
+            tp1 = min(float(l) for l in lows[-21:-1]) if len(lows) >= 21 else 0.0
+            if tp1 >= close:
+                tp1 = close - sl_dist * 1.5
+
+        # TP2: 4h target or fallback
+        candles_4h = candles.get("4h")
+        if candles_4h and len(candles_4h.get("high", [])) >= 5:
+            _4h_highs = candles_4h.get("high", [])
+            _4h_lows = candles_4h.get("low", [])
+            if direction == Direction.LONG:
+                tp2 = max(float(h) for h in _4h_highs[-10:]) if _4h_highs else close + sl_dist * 1.5
+                if tp2 <= tp1:
+                    tp2 = close + sl_dist * 1.5
+            else:
+                tp2 = min(float(l) for l in _4h_lows[-10:]) if _4h_lows else close - sl_dist * 1.5
+                if tp2 >= tp1:
+                    tp2 = close - sl_dist * 1.5
+        else:
+            tp2 = close + sl_dist * 1.5 if direction == Direction.LONG else close - sl_dist * 1.5
+            if direction == Direction.LONG and tp2 <= tp1:
+                tp2 = tp1 + sl_dist
+            if direction == Direction.SHORT and tp2 >= tp1:
+                tp2 = tp1 - sl_dist
+
+        tp3 = close + sl_dist * 3.5 if direction == Direction.LONG else close - sl_dist * 3.5
+
+        profile = smc_data.get("pair_profile")
+        atr_val = ind.get("atr_last", close * 0.002)
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="SRFLIP",
+            atr_val=atr_val,
+            setup_class="SR_FLIP_RETEST",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
+        return sig
+
+    # ------------------------------------------------------------------
+    # FUNDING_EXTREME_SIGNAL path
+    # Extreme funding rate with price + RSI + CVD confluence.
+    # ------------------------------------------------------------------
+
+    def _evaluate_funding_extreme(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """FUNDING_EXTREME_SIGNAL: contrarian signal when funding rate is extreme."""
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper == "QUIET":
+            return None
+
+        funding_rate = smc_data.get("funding_rate")
+        if funding_rate is None:
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 5:
+            return None
+
+        closes = m5.get("close", [])
+        if len(closes) < 5:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        close = float(closes[-1])
+        if close <= 0:
+            return None
+
+        ind = indicators.get("5m", {})
+        ema9 = ind.get("ema9_last")
+        rsi_last = ind.get("rsi_last")
+        rsi_prev = ind.get("rsi_prev")
+
+        # CVD
+        cvd_data = smc_data.get("cvd")
+        cvd_change: Optional[float] = None
+        if cvd_data is not None:
+            cvd_values = cvd_data if isinstance(cvd_data, list) else cvd_data.get("values", [])
+            if len(cvd_values) >= 4:
+                cvd_change = float(cvd_values[-1]) - float(cvd_values[-4])
+
+        # LONG signal: deeply negative funding → longs being discounted
+        if funding_rate < -FUNDING_RATE_EXTREME_THRESHOLD:
+            if ema9 is None or close <= ema9:
+                return None
+            if rsi_last is not None and rsi_last >= 55:
+                return None
+            if rsi_prev is not None and rsi_last is not None and rsi_last <= rsi_prev:
+                return None
+            if cvd_change is not None and cvd_change <= 0:
+                return None
+            direction = Direction.LONG
+        # SHORT signal: deeply positive funding → shorts being discounted
+        elif funding_rate > FUNDING_RATE_EXTREME_THRESHOLD:
+            if ema9 is None or close >= ema9:
+                return None
+            if rsi_last is not None and rsi_last <= 45:
+                return None
+            if rsi_prev is not None and rsi_last is not None and rsi_last >= rsi_prev:
+                return None
+            if cvd_change is not None and cvd_change >= 0:
+                return None
+            direction = Direction.SHORT
+        else:
+            return None
+
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        if not (fvgs or orderblocks):
+            return None
+
+        atr_val = ind.get("atr_last", close * 0.002)
+
+        # SL: nearest liquidation cluster in SL direction, fallback atr*1.5
+        liq_clusters = smc_data.get("liquidation_clusters", [])
+        sl_dist: Optional[float] = None
+        for cluster in liq_clusters:
+            cluster_price = cluster.get("price") if isinstance(cluster, dict) else getattr(cluster, "price", None)
+            if cluster_price is None:
+                continue
+            cluster_price = float(cluster_price)
+            if direction == Direction.LONG and cluster_price < close:
+                liq_dist = abs(close - cluster_price) * 1.1
+                if sl_dist is None or liq_dist < sl_dist:
+                    sl_dist = liq_dist
+            elif direction == Direction.SHORT and cluster_price > close:
+                liq_dist = abs(close - cluster_price) * 1.1
+                if sl_dist is None or liq_dist < sl_dist:
+                    sl_dist = liq_dist
+
+        if sl_dist is None or sl_dist <= 0:
+            sl_dist = atr_val * 1.5
+
+        sl = close - sl_dist if direction == Direction.LONG else close + sl_dist
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        # TP1: small normalization move
+        tp1_candidate = close + close * 0.005 if direction == Direction.LONG else close - close * 0.005
+        if direction == Direction.LONG and tp1_candidate <= close:
+            tp1 = close + sl_dist * 1.0
+        elif direction == Direction.SHORT and tp1_candidate >= close:
+            tp1 = close - sl_dist * 1.0
+        else:
+            tp1 = tp1_candidate
+
+        tp2 = close + sl_dist * 2.0 if direction == Direction.LONG else close - sl_dist * 2.0
+        tp3 = close + sl_dist * 3.5 if direction == Direction.LONG else close - sl_dist * 3.5
+
+        profile = smc_data.get("pair_profile")
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="FUND",
+            atr_val=atr_val,
+            setup_class="FUNDING_EXTREME_SIGNAL",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
+        sig.confidence = min(100.0, sig.confidence + 6.0)
+        return sig
+
+    # ------------------------------------------------------------------
+    # QUIET_COMPRESSION_BREAK path
+    # Bollinger Band squeeze breakout with MACD + volume + RSI.
+    # ------------------------------------------------------------------
+
+    def _evaluate_quiet_compression_break(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """QUIET_COMPRESSION_BREAK: Bollinger Band squeeze breakout."""
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper not in ("QUIET", "RANGING"):
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 25:
+            return None
+
+        closes = m5.get("close", [])
+        volumes = m5.get("volume", [])
+        if len(closes) < 25 or len(volumes) < 21:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        close = float(closes[-1])
+        if close <= 0:
+            return None
+
+        ind = indicators.get("5m", {})
+        bb_upper = ind.get("bb_upper_last")
+        bb_lower = ind.get("bb_lower_last")
+        if bb_upper is None or bb_lower is None:
+            return None
+
+        bb_upper = float(bb_upper)
+        bb_lower = float(bb_lower)
+
+        # Compression check: band width / close < 1.5%
+        if (bb_upper - bb_lower) / close >= 0.015:
+            return None
+
+        # Entry direction
+        if close > bb_upper:
+            direction = Direction.LONG
+        elif close < bb_lower:
+            direction = Direction.SHORT
+        else:
+            return None
+
+        # MACD histogram zero-cross
+        macd_hist_last = ind.get("macd_histogram_last")
+        macd_hist_prev = ind.get("macd_histogram_prev")
+        if macd_hist_last is not None and macd_hist_prev is not None:
+            if direction == Direction.LONG and not (macd_hist_last > 0 and macd_hist_prev < 0):
+                return None
+            if direction == Direction.SHORT and not (macd_hist_last < 0 and macd_hist_prev > 0):
+                return None
+
+        # Volume: current >= 2.0x 20-candle avg
+        avg_vol = sum(float(v) for v in volumes[-21:-1]) / 20.0
+        current_vol = float(volumes[-1])
+        if avg_vol <= 0 or current_vol < 2.0 * avg_vol:
+            return None
+
+        # RSI
+        rsi_val = ind.get("rsi_last")
+        if rsi_val is not None:
+            if direction == Direction.LONG and not (50 <= rsi_val <= 70):
+                return None
+            if direction == Direction.SHORT and not (30 <= rsi_val <= 50):
+                return None
+
+        # SMC: FVG preferred, fallback to orderblocks
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        if not (fvgs or orderblocks):
+            return None
+
+        # SL and TP
+        if direction == Direction.LONG:
+            sl = bb_lower * (1 - 0.001)
+        else:
+            sl = bb_upper * (1 + 0.001)
+
+        sl_dist = abs(close - sl)
+        if sl_dist <= 0:
+            return None
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        band_width = bb_upper - bb_lower
+        if band_width > 0:
+            if direction == Direction.LONG:
+                tp1 = close + band_width * 0.5
+                tp2 = close + band_width * 1.0
+                tp3 = close + band_width * 1.5
+            else:
+                tp1 = close - band_width * 0.5
+                tp2 = close - band_width * 1.0
+                tp3 = close - band_width * 1.5
+        else:
+            tp1 = close + sl_dist * 1.5 if direction == Direction.LONG else close - sl_dist * 1.5
+            tp2 = close + sl_dist * 2.5 if direction == Direction.LONG else close - sl_dist * 2.5
+            tp3 = close + sl_dist * 4.0 if direction == Direction.LONG else close - sl_dist * 4.0
+
+        profile = smc_data.get("pair_profile")
+        atr_val = ind.get("atr_last", close * 0.002)
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="QBREAK",
+            atr_val=atr_val,
+            setup_class="QUIET_COMPRESSION_BREAK",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
+        sig.confidence = min(100.0, sig.confidence + 4.0)
+        return sig
+
+    # ------------------------------------------------------------------
+    # DIVERGENCE_CONTINUATION path
+    # Hidden CVD divergence confirms trend continuation.
+    # ------------------------------------------------------------------
+
+    def _evaluate_divergence_continuation(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """DIVERGENCE_CONTINUATION: hidden CVD divergence in trending regime."""
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper == "TRENDING_UP":
+            direction = Direction.LONG
+        elif regime_upper == "TRENDING_DOWN":
+            direction = Direction.SHORT
+        else:
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 20:
+            return None
+
+        closes_raw = m5.get("close", [])
+        highs = m5.get("high", [])
+        lows = m5.get("low", [])
+        if len(closes_raw) < 20:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        cvd_data = smc_data.get("cvd")
+        if cvd_data is None:
+            return None
+
+        cvd_values = cvd_data if isinstance(cvd_data, list) else cvd_data.get("values", [])
+        if len(cvd_values) < 20:
+            return None
+
+        closes = [float(c) for c in closes_raw]
+        cvd_floats = [float(v) for v in cvd_values]
+
+        close = closes[-1]
+        if close <= 0:
+            return None
+
+        # Hidden divergence detection
+        if direction == Direction.LONG:
+            price_low_early = min(closes[-20:-10])
+            price_low_late = min(closes[-10:])
+            cvd_low_early = min(cvd_floats[-20:-10])
+            cvd_low_late = min(cvd_floats[-10:])
+            # Hidden bullish: price makes higher low, CVD also makes higher low
+            if not (price_low_late < price_low_early and cvd_low_late > cvd_low_early):
+                return None
+        else:
+            price_high_early = max(closes[-20:-10])
+            price_high_late = max(closes[-10:])
+            cvd_high_early = max(cvd_floats[-20:-10])
+            cvd_high_late = max(cvd_floats[-10:])
+            # Hidden bearish: price makes lower high, CVD also makes lower high
+            if not (price_high_late > price_high_early and cvd_high_late < cvd_high_early):
+                return None
+
+        ind = indicators.get("5m", {})
+        ema9 = ind.get("ema9_last")
+        ema21 = ind.get("ema21_last")
+        if ema9 is None or ema21 is None:
+            return None
+
+        # Price within 1.5% of EMA21
+        if ema21 <= 0 or abs(close - ema21) / ema21 > 0.015:
+            return None
+
+        # EMA alignment
+        if direction == Direction.LONG and ema9 <= ema21:
+            return None
+        if direction == Direction.SHORT and ema9 >= ema21:
+            return None
+
+        # SMC basis
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        if not (fvgs or orderblocks):
+            return None
+
+        # SL: beyond EMA21
+        if direction == Direction.LONG:
+            sl = ema21 * (1 - 0.005)
+        else:
+            sl = ema21 * (1 + 0.005)
+
+        sl_dist = abs(close - sl)
+        if sl_dist <= 0:
+            return None
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        # TP1: 20-candle swing high/low
+        if direction == Direction.LONG:
+            tp1 = max(float(h) for h in highs[-21:-1]) if len(highs) >= 21 else 0.0
+            if tp1 <= close:
+                tp1 = close + sl_dist * 1.5
+        else:
+            tp1 = min(float(l) for l in lows[-21:-1]) if len(lows) >= 21 else 0.0
+            if tp1 >= close:
+                tp1 = close - sl_dist * 1.5
+
+        # TP2: 4h target or fallback
+        candles_4h = candles.get("4h")
+        if candles_4h and len(candles_4h.get("high", [])) >= 5:
+            _4h_highs = candles_4h.get("high", [])
+            _4h_lows = candles_4h.get("low", [])
+            if direction == Direction.LONG:
+                tp2 = max(float(h) for h in _4h_highs[-10:]) if _4h_highs else close + sl_dist * 2.5
+                if tp2 <= close:
+                    tp2 = close + sl_dist * 2.5
+            else:
+                tp2 = min(float(l) for l in _4h_lows[-10:]) if _4h_lows else close - sl_dist * 2.5
+                if tp2 >= close:
+                    tp2 = close - sl_dist * 2.5
+        else:
+            tp2 = close + sl_dist * 2.5 if direction == Direction.LONG else close - sl_dist * 2.5
+
+        tp3 = close + sl_dist * 4.0 if direction == Direction.LONG else close - sl_dist * 4.0
+
+        profile = smc_data.get("pair_profile")
+        atr_val = ind.get("atr_last", close * 0.002)
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="DIVCON",
+            atr_val=atr_val,
+            setup_class="DIVERGENCE_CONTINUATION",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
         return sig
 
     # ------------------------------------------------------------------
