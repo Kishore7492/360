@@ -136,6 +136,8 @@ class SignalRouter:
         # AI Engine integration (PR: AI Engine Refactor)
         self._ai_predictor: Optional[SignalPredictor] = None
         self._ai_scorer: Optional[AIConfidenceScorer] = None
+        # Signal pulse: post periodic status messages for open signals
+        self._signal_pulse_enabled: bool = True
 
     # ------------------------------------------------------------------
     # AI Engine wiring
@@ -322,9 +324,51 @@ class SignalRouter:
         except RuntimeError:
             pass
 
+    async def _signal_pulse_loop(self) -> None:
+        """Post a one-liner status pulse for every active open signal every SIGNAL_PULSE_INTERVAL_SECONDS."""
+        from config import SIGNAL_PULSE_INTERVAL_SECONDS
+        while self._running:
+            await asyncio.sleep(30)
+            if not TELEGRAM_ACTIVE_CHANNEL_ID:
+                continue
+            now_ts = time.time()
+            for sid, sig in list(self._active_signals.items()):
+                if sig.status not in ("ACTIVE", "TP1_HIT", "TP2_HIT"):
+                    continue
+                last_pulse = getattr(sig, "_last_pulse_time", 0.0)
+                if now_ts - last_pulse < SIGNAL_PULSE_INTERVAL_SECONDS:
+                    continue
+                try:
+                    current_price = sig.current_price if sig.current_price > 0 else sig.entry
+                    direction = sig.direction
+                    if direction == Direction.LONG:
+                        pnl_pct = (current_price - sig.entry) / sig.entry * 100
+                        tp1_dist = (sig.tp1 - current_price) / sig.entry * 100 if sig.tp1 > 0 else 0.0
+                    else:
+                        pnl_pct = (sig.entry - current_price) / sig.entry * 100
+                        tp1_dist = (current_price - sig.tp1) / sig.entry * 100 if sig.tp1 > 0 else 0.0
+                    sl_pct = abs(current_price - sig.stop_loss) / sig.entry * 100 if sig.stop_loss > 0 else 999.0
+                    if sl_pct <= 0.0:
+                        thesis = "broken"
+                    elif sl_pct <= 0.5:
+                        thesis = "weakening"
+                    else:
+                        thesis = "intact"
+                    direction_word = "LONG" if direction == Direction.LONG else "SHORT"
+                    text = (
+                        f"📡 {sig.symbol} {direction_word} — still open\n"
+                        f"P&L: {pnl_pct:+.2f}% | TP1 in {tp1_dist:.2f}%\n"
+                        f"Thesis: {thesis}"
+                    )
+                    await self._send_telegram(TELEGRAM_ACTIVE_CHANNEL_ID, text)
+                    sig._last_pulse_time = now_ts
+                except Exception as exc:
+                    log.debug("Signal pulse failed for {}: {}", sig.symbol, exc)
+
     async def start(self) -> None:
         self._running = True
         log.info("Signal router started")
+        asyncio.create_task(self._signal_pulse_loop())
         _cleanup_counter = 0
         while self._running:
             try:

@@ -27,6 +27,11 @@ class SetupClass(str, Enum):
     MULTI_STRATEGY_CONFLUENCE = "MULTI_STRATEGY_CONFLUENCE"
     VOLUME_SURGE_BREAKOUT = "VOLUME_SURGE_BREAKOUT"
     BREAKDOWN_SHORT = "BREAKDOWN_SHORT"
+    OPENING_RANGE_BREAKOUT = "OPENING_RANGE_BREAKOUT"
+    SR_FLIP_RETEST = "SR_FLIP_RETEST"
+    FUNDING_EXTREME_SIGNAL = "FUNDING_EXTREME_SIGNAL"
+    QUIET_COMPRESSION_BREAK = "QUIET_COMPRESSION_BREAK"
+    DIVERGENCE_CONTINUATION = "DIVERGENCE_CONTINUATION"
 
 
 class MarketState(str, Enum):
@@ -56,6 +61,11 @@ CHANNEL_SETUP_COMPATIBILITY: Dict[str, set[SetupClass]] = {
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.BREAKDOWN_SHORT,
+        SetupClass.OPENING_RANGE_BREAKOUT,
+        SetupClass.SR_FLIP_RETEST,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.QUIET_COMPRESSION_BREAK,
+        SetupClass.DIVERGENCE_CONTINUATION,
     },
     "360_SCALP_FVG": {
         SetupClass.TREND_PULLBACK_CONTINUATION,
@@ -115,6 +125,10 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.BREAKDOWN_SHORT,
+        SetupClass.OPENING_RANGE_BREAKOUT,
+        SetupClass.SR_FLIP_RETEST,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.DIVERGENCE_CONTINUATION,
     },
     MarketState.WEAK_TREND: {
         SetupClass.TREND_PULLBACK_CONTINUATION,
@@ -124,6 +138,10 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.BREAKDOWN_SHORT,
+        SetupClass.OPENING_RANGE_BREAKOUT,
+        SetupClass.SR_FLIP_RETEST,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.DIVERGENCE_CONTINUATION,
     },
     MarketState.CLEAN_RANGE: {
         SetupClass.RANGE_REJECTION,
@@ -131,11 +149,17 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.EXHAUSTION_FADE,
         SetupClass.RANGE_FADE,
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
+        SetupClass.SR_FLIP_RETEST,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.QUIET_COMPRESSION_BREAK,
     },
     MarketState.DIRTY_RANGE: {
         SetupClass.LIQUIDITY_SWEEP_REVERSAL,
         SetupClass.RANGE_FADE,
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
+        SetupClass.SR_FLIP_RETEST,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.QUIET_COMPRESSION_BREAK,
     },
     MarketState.BREAKOUT_EXPANSION: {
         SetupClass.BREAKOUT_RETEST,
@@ -146,6 +170,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.MULTI_STRATEGY_CONFLUENCE,
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.BREAKDOWN_SHORT,
+        SetupClass.OPENING_RANGE_BREAKOUT,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
     },
     MarketState.VOLATILE_UNSUITABLE: {
         # Whale-driven and liquidity-sweep signals are valid precisely in
@@ -157,6 +183,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         # Volume surge breakout/breakdown are designed for volatile conditions
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.BREAKDOWN_SHORT,
+        SetupClass.OPENING_RANGE_BREAKOUT,
+        SetupClass.FUNDING_EXTREME_SIGNAL,
     },
 }
 
