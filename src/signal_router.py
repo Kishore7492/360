@@ -368,8 +368,7 @@ class SignalRouter:
     async def start(self) -> None:
         self._running = True
         log.info("Signal router started")
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._signal_pulse_loop())
+        asyncio.create_task(self._signal_pulse_loop())
         _cleanup_counter = 0
         while self._running:
             try:

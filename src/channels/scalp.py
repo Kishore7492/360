@@ -1144,7 +1144,7 @@ class ScalpChannel(BaseChannel):
 
         # Opening range = first 4 candles of session window (candles[-8:-4])
         range_highs = [float(h) for h in highs[-8:-4]]
-        range_lows = [float(l) for l in lows[-8:-4]]
+        range_lows = [float(low_val) for low_val in lows[-8:-4]]
         if not range_highs or not range_lows:
             return None
         range_high = max(range_highs)
@@ -1364,7 +1364,7 @@ class ScalpChannel(BaseChannel):
             if tp1 <= close:
                 tp1 = close + sl_dist * 1.5
         else:
-            tp1 = min(float(l) for l in lows[-21:-1]) if len(lows) >= 21 else 0.0
+            tp1 = min(float(low_val) for low_val in lows[-21:-1]) if len(lows) >= 21 else 0.0
             if tp1 >= close:
                 tp1 = close - sl_dist * 1.5
 
@@ -1378,7 +1378,7 @@ class ScalpChannel(BaseChannel):
                 if tp2 <= tp1:
                     tp2 = close + sl_dist * 1.5
             else:
-                tp2 = min(float(l) for l in _4h_lows[-10:]) if _4h_lows else close - sl_dist * 1.5
+                tp2 = min(float(low_val) for low_val in _4h_lows[-10:]) if _4h_lows else close - sl_dist * 1.5
                 if tp2 >= tp1:
                     tp2 = close - sl_dist * 1.5
         else:
@@ -1850,7 +1850,7 @@ class ScalpChannel(BaseChannel):
             if tp1 <= close:
                 tp1 = close + sl_dist * 1.5
         else:
-            tp1 = min(float(l) for l in lows[-21:-1]) if len(lows) >= 21 else 0.0
+            tp1 = min(float(low_val) for low_val in lows[-21:-1]) if len(lows) >= 21 else 0.0
             if tp1 >= close:
                 tp1 = close - sl_dist * 1.5
 
