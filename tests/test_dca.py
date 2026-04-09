@@ -397,8 +397,10 @@ class TestChannelDcaZoneInit:
         }
         smc_data = {"sweeps": [sweep]}
 
-        sig = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
-        assert sig is not None
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        assert len(sigs) >= 1
+        sig = sigs[0]
         assert sig.dca_zone_lower > 0
         assert sig.dca_zone_upper > 0
         assert sig.dca_zone_lower < sig.dca_zone_upper

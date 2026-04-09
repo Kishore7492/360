@@ -326,7 +326,11 @@ class TestScalpChannelRegimeWeights:
             "TESTUSDT", candles, indicators, smc_data,
             spread_pct=0.01, volume_24h_usd=20_000_000, regime="VOLATILE",
         )
-        # Regime-weighted selection must return None or a proper Signal instance.
-        assert sig is None or isinstance(sig, Signal), (
-            "evaluate() must return None or a Signal, not an intermediate type"
+        # PR-ARCH-2: evaluate() now returns List[Signal] (all valid candidates).
+        assert isinstance(sig, list), (
+            "evaluate() must return a List[Signal] (PR-ARCH-2)"
         )
+        for s in sig:
+            assert isinstance(s, Signal), (
+                "Each element in the returned list must be a Signal instance"
+            )

@@ -118,40 +118,32 @@ class ScalpChannel(BaseChannel):
         spread_pct: float,
         volume_24h_usd: float,
         regime: str = "",
-    ) -> Optional[Signal]:
-        # Evaluate all signal paths and return the one with the best R-multiple,
-        # adjusted by regime-specific indicator weight multipliers so that the
-        # most appropriate signal type is preferred for the current market regime.
-        weights = self._select_indicator_weights(regime)
-        # Each tuple is (signal, adjusted_r_multiple) for regime-aware selection.
-        scored: List[tuple] = []
-        for evaluator, weight_key in (
-            (self._evaluate_standard,              "trend"),
-            (self._evaluate_trend_pullback,        "trend"),
-            (self._evaluate_liquidation_reversal,  "order_flow"),
-            (self._evaluate_whale_momentum,        "order_flow"),
-            (self._evaluate_volume_surge_breakout, "volume"),
-            (self._evaluate_breakdown_short,       "volume"),
-            (self._evaluate_opening_range_breakout,  "trend"),
-            (self._evaluate_sr_flip_retest,          "order_flow"),
-            (self._evaluate_funding_extreme,         "order_flow"),
-            (self._evaluate_quiet_compression_break, "volume"),
-            (self._evaluate_divergence_continuation, "order_flow"),
+    ) -> List[Signal]:
+        # Evaluate all signal paths and return every valid candidate so that the
+        # scanner can process each one independently through the gate chain.
+        # Previously only the winner-takes-all best signal was returned, which
+        # silently discarded all other valid setups.
+        profile = smc_data.get("pair_profile") if smc_data else None
+        results: List[Signal] = []
+        for evaluator in (
+            self._evaluate_standard,
+            self._evaluate_trend_pullback,
+            self._evaluate_liquidation_reversal,
+            self._evaluate_whale_momentum,
+            self._evaluate_volume_surge_breakout,
+            self._evaluate_breakdown_short,
+            self._evaluate_opening_range_breakout,
+            self._evaluate_sr_flip_retest,
+            self._evaluate_funding_extreme,
+            self._evaluate_quiet_compression_break,
+            self._evaluate_divergence_continuation,
         ):
             sig = evaluator(symbol, candles, indicators, smc_data, spread_pct, volume_24h_usd, regime)
             if sig is not None:
-                # Boost the effective R-multiple by the regime weight so that
-                # regime-preferred signal types rank higher in the selection.
-                adjusted_r = sig.r_multiple * weights[weight_key]
-                scored.append((sig, adjusted_r))
-        if not scored:
-            return None
-        # Return the candidate with the best regime-adjusted risk-reward
-        best, _ = max(scored, key=lambda t: t[1])
-        # Apply kill zone check and mark reduced-conviction signals
-        profile = smc_data.get("pair_profile") if smc_data else None
-        result = self._apply_kill_zone_note(best, profile=profile)
-        return result
+                # Apply kill zone check and mark reduced-conviction signals
+                sig = self._apply_kill_zone_note(sig, profile=profile)
+                results.append(sig)
+        return results
 
     # ------------------------------------------------------------------
     # Standard scalp path (TREND_PULLBACK / BREAKOUT / LIQUIDITY_SWEEP)

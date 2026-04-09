@@ -2011,6 +2011,7 @@ class Scanner:
         volume_24h: float,
         chan: Any,
         ctx: ScanContext,
+        _preseed_signal: Optional[Any] = None,
     ) -> Tuple[Optional[Any], Optional[bool]]:
         t0_signal = time.monotonic()
         soft_penalty: float = 0.0  # Accumulated confidence deduction from soft gates
@@ -2028,21 +2029,26 @@ class Scanner:
                 return None, False  # Silently skip — cooldown active
         # ── End failed-detection cooldown check ───────────────────────────────
 
-        try:
-            sig = chan.evaluate(
-                symbol=symbol,
-                candles=ctx.candles,
-                indicators=ctx.indicators,
-                smc_data=ctx.smc_data,
-                spread_pct=ctx.spread_pct,
-                volume_24h_usd=volume_24h,
-                regime=ctx.regime_result.regime.value,
-            )
-        except Exception as exc:
-            log.debug("Channel {} eval error for {}: {}", chan_name, symbol, exc)
-            return None, None
-        if sig is None:
-            return None, None
+        if _preseed_signal is not None:
+            # Signal was already evaluated outside (e.g. ScalpChannel multi-signal path);
+            # skip the evaluate() call and run the gate chain on the pre-built signal.
+            sig = _preseed_signal
+        else:
+            try:
+                sig = chan.evaluate(
+                    symbol=symbol,
+                    candles=ctx.candles,
+                    indicators=ctx.indicators,
+                    smc_data=ctx.smc_data,
+                    spread_pct=ctx.spread_pct,
+                    volume_24h_usd=volume_24h,
+                    regime=ctx.regime_result.regime.value,
+                )
+            except Exception as exc:
+                log.debug("Channel {} eval error for {}: {}", chan_name, symbol, exc)
+                return None, None
+            if sig is None:
+                return None, None
 
         # Record wall-clock time of signal detection for latency tracking.
         sig.detected_at = time.time()
@@ -2890,22 +2896,83 @@ class Scanner:
                         ctx_for_chan = ctx
             else:
                 ctx_for_chan = ctx
-            sig, cross_verified = await self._prepare_signal(symbol, volume_24h, chan, ctx_for_chan)
-            if sig is None:
-                continue
-            # Directional global cooldown check: skip if same (symbol, direction)
-            # fired recently. Opposite direction is not blocked.
-            _sig_dir = sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
-            if self._is_in_global_cooldown(symbol, _sig_dir):
-                log.debug(
-                    "Global directional cooldown: {} {} {} skipped",
-                    symbol, _sig_dir, chan_name,
-                )
-                continue
-            # Track evaluated setup class for diversity telemetry
-            _sc = getattr(sig, "setup_class", chan_name)
-            self._setup_eval_counts[_sc] += 1
-            _pending_signals.append((sig, chan_name))
+
+            if chan_name == "360_SCALP":
+                # ScalpChannel.evaluate() returns List[Signal] — every valid candidate
+                # is processed independently through the gate chain.  Same-direction
+                # signals from the same symbol are deduplicated here so that only one
+                # setup per direction can enter _pending_signals per cycle.
+                try:
+                    _raw_result = chan.evaluate(
+                        symbol=symbol,
+                        candles=ctx_for_chan.candles,
+                        indicators=ctx_for_chan.indicators,
+                        smc_data=ctx_for_chan.smc_data,
+                        spread_pct=ctx_for_chan.spread_pct,
+                        volume_24h_usd=volume_24h,
+                        regime=ctx_for_chan.regime_result.regime.value,
+                    )
+                except Exception as _exc:
+                    log.debug("Channel {} eval error for {}: {}", chan_name, symbol, _exc)
+                    _raw_result = []
+                # Normalise: real ScalpChannel returns list; legacy mocks return Signal|None
+                if isinstance(_raw_result, list):
+                    _raw_sigs = _raw_result
+                elif _raw_result is not None:
+                    _raw_sigs = [_raw_result]
+                else:
+                    _raw_sigs = []
+                _seen_scalp_dirs: Set[str] = set()
+                for _raw_sig in _raw_sigs:
+                    _raw_dir = (
+                        _raw_sig.direction.value
+                        if hasattr(_raw_sig.direction, "value")
+                        else str(_raw_sig.direction)
+                    )
+                    # Same-symbol same-direction dedup: only the first candidate per
+                    # direction passes through gates per scan cycle.
+                    if _raw_dir in _seen_scalp_dirs:
+                        log.debug(
+                            "Scalp same-dir dedup: {} {} {} skipped",
+                            symbol, _raw_dir, getattr(_raw_sig, "setup_class", "?"),
+                        )
+                        continue
+                    sig, _ = await self._prepare_signal(
+                        symbol, volume_24h, chan, ctx_for_chan,
+                        _preseed_signal=_raw_sig,
+                    )
+                    if sig is None:
+                        continue
+                    _sig_dir = (
+                        sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
+                    )
+                    if self._is_in_global_cooldown(symbol, _sig_dir):
+                        log.debug(
+                            "Global directional cooldown: {} {} {} skipped",
+                            symbol, _sig_dir, chan_name,
+                        )
+                        continue
+                    _sc = getattr(sig, "setup_class", chan_name)
+                    self._setup_eval_counts[_sc] += 1
+                    _pending_signals.append((sig, chan_name))
+                    _seen_scalp_dirs.add(_raw_dir)
+            else:
+                sig, cross_verified = await self._prepare_signal(symbol, volume_24h, chan, ctx_for_chan)
+                if sig is None:
+                    continue
+                # Directional global cooldown check: skip if same (symbol, direction)
+                # fired recently. Opposite direction is not blocked.
+                _sig_dir = sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
+                if self._is_in_global_cooldown(symbol, _sig_dir):
+                    log.debug(
+                        "Global directional cooldown: {} {} {} skipped",
+                        symbol, _sig_dir, chan_name,
+                    )
+                    continue
+                # Track evaluated setup class for diversity telemetry
+                _sc = getattr(sig, "setup_class", chan_name)
+                self._setup_eval_counts[_sc] += 1
+                _pending_signals.append((sig, chan_name))
 
         # --- Radar evaluation pass (soft-disabled channels only) ----------
         # Evaluates channels that are soft-disabled via _CHANNEL_ENABLED_FLAGS.
@@ -2921,7 +2988,7 @@ class Scanner:
             if _CHANNEL_ENABLED_FLAGS.get(chan_name, True):
                 continue  # Only evaluate soft-disabled channels here
             try:
-                _radar_sig = chan.evaluate(
+                _radar_result = chan.evaluate(
                     symbol=symbol,
                     candles=ctx.candles,
                     indicators=ctx.indicators,
@@ -2930,6 +2997,11 @@ class Scanner:
                     volume_24h_usd=volume_24h,
                     regime=_regime_str,
                 )
+                # ScalpChannel returns List[Signal]; pick the first for radar scoring.
+                if isinstance(_radar_result, list):
+                    _radar_sig = _radar_result[0] if _radar_result else None
+                else:
+                    _radar_sig = _radar_result
                 if _radar_sig is not None and _radar_sig.confidence >= RADAR_ALERT_MIN_CONFIDENCE:
                     _existing = self._radar_scores.get(chan_name)
                     if (
