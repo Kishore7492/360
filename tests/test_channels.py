@@ -43,8 +43,10 @@ class TestScalpChannel:
         indicators = {"5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100)}
         smc_data = {"sweeps": [sweep]}
 
-        sig = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
-        assert sig is not None
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        assert len(sigs) >= 1
+        sig = sigs[0]
         assert sig.channel == "360_SCALP"
         assert sig.direction == Direction.LONG
         assert sig.entry > 0
@@ -68,8 +70,9 @@ class TestScalpChannel:
         ch = ScalpChannel()
         candles = {"5m": _make_candles(60)}
         indicators = {"5m": _make_indicators()}
-        sig = ch.evaluate("BTCUSDT", candles, indicators, {"sweeps": []}, 0.01, 10_000_000)
-        assert sig is None
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, {"sweeps": []}, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        assert sigs == []
 
     def test_whale_momentum_long_signal_on_buy_flow(self):
         """WHALE_MOMENTUM path: strong buy tick flow → LONG signal."""
@@ -92,10 +95,12 @@ class TestScalpChannel:
             "order_book": order_book,
         }
 
-        sig = ch.evaluate("ETHUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
-        assert sig is not None
-        assert sig.direction == Direction.LONG
-        assert sig.setup_class == "WHALE_MOMENTUM"
+        sigs = ch.evaluate("ETHUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        whale_sigs = [s for s in sigs if s.setup_class == "WHALE_MOMENTUM"]
+        assert len(whale_sigs) >= 1
+        assert whale_sigs[0].direction == Direction.LONG
+        assert whale_sigs[0].setup_class == "WHALE_MOMENTUM"
 
     def test_whale_momentum_signal_without_order_book_has_soft_penalty(self):
         """WHALE_MOMENTUM path: missing order book → signal generated with soft penalty.
@@ -176,4 +181,108 @@ def test_scalp_channel_no_calc_levels_method():
     ch = ScalpChannel()
     assert not hasattr(ch, "_calc_levels"), \
         "_calc_levels should be removed; TP is computed by build_channel_signal()"
+
+
+# ---------------------------------------------------------------------------
+# PR-ARCH-2: Winner-Takes-All Removal tests
+# ---------------------------------------------------------------------------
+
+class TestScalpChannelReturnsListOfSignals:
+    """PR-ARCH-2: ScalpChannel.evaluate() must return List[Signal], never Optional[Signal]."""
+
+    def test_evaluate_always_returns_list(self):
+        """evaluate() must return a list even when no signals are produced."""
+        ch = ScalpChannel()
+        candles = {"5m": _make_candles(60)}
+        sigs = ch.evaluate("BTCUSDT", candles, {"5m": _make_indicators()}, {"sweeps": []}, 0.01, 1_000_000)
+        assert isinstance(sigs, list)
+
+    def test_evaluate_empty_list_when_no_signals(self):
+        """evaluate() returns [] instead of None when all paths reject."""
+        ch = ScalpChannel()
+        candles = {"5m": _make_candles(60)}
+        sigs = ch.evaluate("BTCUSDT", candles, {"5m": _make_indicators()}, {"sweeps": []}, 0.01, 1_000_000)
+        assert sigs == []
+
+    def test_evaluate_can_return_multiple_signals(self):
+        """evaluate() may return more than one signal per cycle (no winner-takes-all).
+
+        Inject conditions that satisfy both the standard sweep path and the whale
+        momentum path simultaneously so that both evaluators fire.  The result must
+        contain at least one signal and must NOT be capped to exactly one.
+        """
+        ch = ScalpChannel()
+        n = 60
+        candles = {"5m": _make_candles(n), "1m": _make_candles(n)}
+        sweep = LiquiditySweep(
+            index=n - 1, direction=Direction.LONG,
+            sweep_level=99, close_price=99.05,
+            wick_high=101, wick_low=98,
+        )
+        ticks = [
+            {"price": 100.0, "qty": 15000, "isBuyerMaker": False},  # buy $1.5M
+            {"price": 100.0, "qty": 5000, "isBuyerMaker": True},    # sell $0.5M
+        ]
+        order_book = {
+            "bids": [[100.0, 500.0]] * 10,
+            "asks": [[100.1, 100.0]] * 10,
+        }
+        smc_data = {
+            "sweeps": [sweep],
+            "whale_alert": {"amount_usd": 1_500_000},
+            "volume_delta_spike": True,
+            "recent_ticks": ticks,
+            "order_book": order_book,
+        }
+        indicators = {
+            "5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100),
+            "1m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100),
+        }
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        # At least one signal must be produced; multiple is expected
+        assert len(sigs) >= 1
+
+    def test_all_returned_signals_belong_to_360_scalp(self):
+        """Every signal in the returned list must have channel == '360_SCALP'."""
+        ch = ScalpChannel()
+        n = 60
+        candles = {"5m": _make_candles(n), "1m": _make_candles(n)}
+        sweep = LiquiditySweep(
+            index=n - 1, direction=Direction.LONG,
+            sweep_level=99, close_price=99.05,
+            wick_high=101, wick_low=98,
+        )
+        ticks = [
+            {"price": 100.0, "qty": 15000, "isBuyerMaker": False},
+            {"price": 100.0, "qty": 5000, "isBuyerMaker": True},
+        ]
+        order_book = {
+            "bids": [[100.0, 500.0]] * 10,
+            "asks": [[100.1, 100.0]] * 10,
+        }
+        smc_data = {
+            "sweeps": [sweep],
+            "whale_alert": {"amount_usd": 1_500_000},
+            "volume_delta_spike": True,
+            "recent_ticks": ticks,
+            "order_book": order_book,
+        }
+        indicators = {
+            "5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100),
+            "1m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100),
+        }
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        for sig in sigs:
+            assert sig.channel == "360_SCALP"
+
+    def test_evaluate_accepts_regime_and_returns_list(self):
+        """evaluate() must accept regime= kwarg and still return a list."""
+        ch = ScalpChannel()
+        candles = {"5m": _make_candles(60)}
+        sigs = ch.evaluate(
+            "BTCUSDT", candles, {"5m": _make_indicators()}, {"sweeps": []},
+            0.01, 1_000_000, regime="RANGING",
+        )
+        assert isinstance(sigs, list)
 

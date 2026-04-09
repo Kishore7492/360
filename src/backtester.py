@@ -983,7 +983,7 @@ class Backtester:
             smc_data = smc_result.as_dict()
 
             try:
-                sig = channel.evaluate(
+                _eval_result = channel.evaluate(
                     symbol=symbol,
                     candles=window,
                     indicators=indicators,
@@ -996,6 +996,11 @@ class Backtester:
                 log.debug("Channel eval error at candle %d: %s", i, exc)
                 continue
 
+            # ScalpChannel returns List[Signal]; other channels return Optional[Signal].
+            if isinstance(_eval_result, list):
+                sig = _eval_result[0] if _eval_result else None
+            else:
+                sig = _eval_result
             if sig is None:
                 continue
 

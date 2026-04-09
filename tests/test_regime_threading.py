@@ -58,10 +58,11 @@ class TestScalpChannelRegimeParam:
         indicators = {"5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100)}
         smc_data = {"sweeps": [sweep]}
         # Should not raise TypeError for unknown keyword argument
-        sig = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000,
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000,
                           regime="TRENDING_UP")
         # Signal may or may not be generated — just verifying regime is accepted
-        assert sig is None or sig.channel == "360_SCALP"
+        assert isinstance(sigs, list)
+        assert all(s.channel == "360_SCALP" for s in sigs)
 
     def test_evaluate_regime_default_empty_string(self):
         """ScalpChannel.evaluate() works without regime (backward compatible)."""
@@ -75,8 +76,9 @@ class TestScalpChannelRegimeParam:
         indicators = {"5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100)}
         smc_data = {"sweeps": [sweep]}
         # Calling without regime should still work
-        sig = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
-        assert sig is None or sig.channel == "360_SCALP"
+        sigs = ch.evaluate("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000)
+        assert isinstance(sigs, list)
+        assert all(s.channel == "360_SCALP" for s in sigs)
 
 
 class TestAllSubChannelsRegimeParam:
