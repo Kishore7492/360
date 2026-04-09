@@ -305,6 +305,13 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 - Reduces available pair universe by ~60% before any evaluator runs.
 - This is correct protective behaviour. Will self-resolve when market conditions normalise.
 
+**Root Cause 7 — Setup Classification Bug (critical signal attribution error)**
+- `classify_setup()` function in `src/signal_quality.py` lines 567-568 misclassifies signals
+- LIQUIDITY_SWEEP_REVERSAL from `_evaluate_standard` → wrongly becomes RANGE_FADE
+- QUIET_COMPRESSION_BREAK from `_evaluate_quiet_compression_break` → wrongly becomes RANGE_FADE
+- This explains why RANGE_FADE persists and why genuine QUIET_COMPRESSION_BREAK never appears
+- Fix (ARCH-4): Add both setup classes to `_SELF_CLASSIFYING` frozenset to bypass classification logic
+
 ### Architecture Fix Plan (3 PRs, in execution order)
 
 **PR-ARCH-1 — Gate Fixes** (raises immediately — single file: src/scanner/__init__.py)
@@ -516,19 +523,26 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 - QUIET_SCALP_BLOCK: exempt QUIET_COMPRESSION_BREAK — it is the quiet regime strategy, cannot be blocked in quiet
 - Single file: src/scanner/__init__.py
 - Expected outcome: 5 previously gate-blocked evaluators unblocked
+- NOTE: Cancelled due to confusion in agent tasks
 
-### PR-ARCH-2 — Winner-Takes-All Removal — QUEUED (raises after ARCH-1 merges)
+### PR-ARCH-2 — Winner-Takes-All Removal — IN PROGRESS (2026-04-09)
 - ScalpChannel.evaluate() returns List[Signal] instead of Optional[Signal]
 - Scanner processes each candidate independently through gate chain
 - Same-symbol same-direction dedup enforced
 - MAX_CORRELATED_SCALP_SIGNALS=4 cap applied across list
 - Files: src/channels/scalp.py + src/scanner/__init__.py
+- NOTE: Previous architecture PRs (ARCH-1) were cancelled due to confusion
 
 ### PR-ARCH-3 — Data Pipeline Wiring — QUEUED (raises after ARCH-2 merges)
 - Wire funding_rate (from order_flow_store) into smc_data before channel.evaluate()
 - Wire cvd data into smc_data
 - Unlocks: _evaluate_funding_extreme, _evaluate_divergence_continuation, _evaluate_liquidation_reversal
 - File: src/scanner/__init__.py (smc_data assembly block)
+
+### PR-ARCH-4 — Setup Classification Bug Fix — QUEUED (raises after ARCH-3 merges)
+- Add LIQUIDITY_SWEEP_REVERSAL and QUIET_COMPRESSION_BREAK to _SELF_CLASSIFYING frozenset
+- Single line change in src/signal_quality.py
+- Expected outcome: Correct setup class attribution, genuine QUIET signals properly identified
 
 ### PR15 — Intelligence Layer — CONCEPT — raise after 2 weeks live data
 - Symbol-specific PairProfile overrides (PAIR_OVERRIDES dict in config)
@@ -630,10 +644,11 @@ Owner responsibilities:
 | WS streams | 300 streams healthy |
 | Pairs scanning | 75 pairs |
 | Signals fired today | 1 active (XAUUSDT LONG RANGE_FADE at 07:26) + 9 closed in last 10 records — all RANGE_FADE from _evaluate_standard |
-| Signal path diversity | 0 non-RANGE_FADE signals — root cause fully confirmed (see Section 6) |
-| Architecture audit | COMPLETE — all 6 root causes identified and confirmed by direct code read |
-| Architecture fix plan | 3 PRs agreed: ARCH-1 (gate fixes), ARCH-2 (winner-takes-all removal), ARCH-3 (data pipeline wiring) |
-| PR-ARCH-1 | IN PROGRESS — raising now |
+| Signal path diversity | 0 non-RANGE_FADE signals — root cause fully confirmed (see Section 6, Root Causes 1-7) |
+| Architecture audit | COMPLETE — all 7 root causes identified and confirmed by direct code read |
+| Architecture fix plan | 4 PRs agreed: ARCH-1 (gate fixes — cancelled), ARCH-2 (winner-takes-all removal — IN PROGRESS), ARCH-3 (data pipeline wiring), ARCH-4 (setup classification bug fix) |
+| PR-ARCH-1 | CANCELLED — previous architecture PRs cancelled due to confusion |
+| PR-ARCH-2 | IN PROGRESS — winner-takes-all removal |
 | PR14-hotfix | MERGED (PR#70) — TypeError in _post_signal_closed fixed |
 | Market conditions | Extreme Fear (F&G=14), tariff shock, 40-44/75 pairs spread-blocked each cycle |
 | Protective mode | ENTERED repeatedly — volatile=21-33, spread_wide=16-52 per cycle |
@@ -869,4 +884,26 @@ Copilot appends to this automatically at the end of every session. No prompt nee
 - PR-ARCH-1 raises immediately after brief write
 - PR-ARCH-2 queued
 - PR-ARCH-3 queued
+
+### Session — 2026-04-09 (Setup Classification Bug Discovery + PR-ARCH-2 Creation)
+
+**What was discussed:**
+- Owner requested PR-ARCH-2 creation (Winner-Takes-All Removal)
+- OWNER_BRIEF.md update attempts failed due to technical issues
+- Critical setup classification bug discovered during investigation
+
+**What was discovered:**
+- Root Cause 7: Setup classification bug in src/signal_quality.py causing signal misattribution
+- RANGE_FADE persistence explained by classification error, not actual range fade signals
+- QUIET_COMPRESSION_BREAK signals being misclassified as RANGE_FADE
+
+**What was built:**
+- PR-ARCH-2 successfully created and is IN PROGRESS
+- Previous architecture PRs cancelled due to confusion in agent tasks
+- OWNER_BRIEF.md update queued via coding agent due to manual update failures
+
+**Next actions:**
+- Monitor PR-ARCH-2 completion
+- Raise PR-ARCH-3 (Data Pipeline Wiring) after ARCH-2 merges
+- Raise PR-ARCH-4 (Setup Classification Bug Fix) after ARCH-3 merges
 - Run VPS monitor after ARCH-1 merges — confirm new evaluator paths starting to appear in logs.
