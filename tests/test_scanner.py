@@ -1524,7 +1524,7 @@ class TestArch3ScanContextWiring:
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
 
         assert len(captured_smc) >= 1
-        assert captured_smc[0].get("funding_rate") == pytest.approx(0.0005)
+        assert captured_smc[0].get("funding_rate") == 0.0005
 
     @pytest.mark.asyncio
     async def test_cvd_wired_into_smc_data_when_history_available(self):

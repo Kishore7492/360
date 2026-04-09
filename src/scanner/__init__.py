@@ -1580,7 +1580,7 @@ class Scanner:
                 "{} smc_data: funding_rate={}, cvd_candles={}",
                 symbol,
                 _fr,
-                len(_cvd_arr) if _cvd_arr is not None else 0,
+                len(_cvd_arr),
             )
 
         return ScanContext(
