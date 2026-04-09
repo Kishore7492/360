@@ -349,6 +349,35 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 - Unlocks: _evaluate_funding_extreme, _evaluate_divergence_continuation, _evaluate_liquidation_reversal
 - Expected outcome: 3 previously dead evaluators become live
 
+### Repository-Wide Architecture Audit — Signal Paths, Confidence, Gates, SL/TP (2026-04-09)
+
+Deep research task completed covering all four subsystems. Architecture decisions:
+
+**Signal Paths — Path-specific generation + hybrid downstream**
+- Evaluator-level signal generation should remain path-specific (each evaluator retains its own thesis logic).
+- Downstream handling (scoring, gates, SL/TP) should be hybrid by path family, not globally uniform.
+
+**Confidence Scoring — Hybrid by family, not globally uniform**
+- A single uniform PR09 scoring model is wrong for all families simultaneously.
+- Target: shared base score + family-aware thesis dimension (order-flow dimension for reversal/positioning families).
+
+**Gates — Hybrid: universal safety gates + family-aware policy gates + narrow setup exemptions**
+- Hard safety gates (min confidence, spread, circuit breaker) remain universal.
+- SMC sweep gate and trend EMA gate are family-aware: exempt for non-sweep and non-EMA-based families.
+- Narrow setup-class exemptions (e.g. QUIET_COMPRESSION_BREAK, DIVERGENCE_CONTINUATION) preserved.
+
+**SL/TP — Hybrid: universal risk controls + family-aware TP/SL logic**
+- Universal hard risk controls (max SL %, min R:R) remain enforced for all paths.
+- Target: family-aware TP and SL logic replaces the current `build_risk_plan()` uniform overwrite.
+- Currently evaluator-computed TP logic is overwritten by `build_risk_plan()`, making most paths effectively uniform on exits.
+
+**Key Confirmed Mismatches from the Audit:**
+- **Missing setup identities in `SetupClass` / `_SELF_CLASSIFYING`** — `LIQUIDATION_REVERSAL`, `TREND_PULLBACK_EMA`, `WHALE_MOMENTUM`, `DIVERGENCE_CONTINUATION`, `SR_FLIP_RETEST` absent from `_SELF_CLASSIFYING`, causing silent reclassification (all appear as RANGE_FADE in output).
+- **`LIQUIDATION_REVERSAL` structurally suppressed in volatile conditions** — setup compatibility / classification mismatch: signal passes evaluator but is filtered out at volatile-compatibility gate because the setup class is not in the volatile-compatible set.
+- **`_SCALP_CHANNELS` excludes 4 of 8 scalp channels** — only 4 channels appear in the set, creating inconsistent gate behaviour across scalp channels.
+- **Soft-gate penalties overwritten by PR09 final scoring** — VWAP, kill zone, OI, spoof, volume divergence, cluster penalties accumulate then are discarded when PR09 sets `sig.confidence = _score_result["total"]`. Penalties are architecturally present but currently ineffective.
+- **Evaluator-computed TP logic overwritten by `build_risk_plan()`** — most path-specific TP calculations are replaced, making exits effectively uniform regardless of the signal family.
+
 ### Known Signal Coverage — Post PR9
 | Market Condition | Coverage | Plan |
 |---|---|---|
@@ -568,11 +597,39 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 - Backed by live evidence: divergence candidates repeatedly observed at 64.3 in logs.
 - Tests confirm: path-specific floor is 64.0, global floor remains 65.0, divergence at 64.3 passes, generic setup at 64.3 still fails, divergence at 58.3 still fails.
 
-### PR-ARCH-6 — SMC Gate Exemption Corrections — PLANNED (2026-04-09)
-- Correct `_SMC_GATE_EXEMPT_SETUPS` by adding LIQUIDATION_REVERSAL and FUNDING_EXTREME_SIGNAL.
-- Likely also add DIVERGENCE_CONTINUATION after quick confirm that SMC score is still 0–2 in live logs.
-- Expected outcome: stop systematic false suppression — both setup classes now pass SMC hard gate when their own evaluator validates them.
-- File: src/scanner/__init__.py (single constant, _SMC_GATE_EXEMPT_SETUPS set)
+### PR-ARCH-6 — SMC Gate Exemption Corrections — MERGED (PR#83, 2026-04-09)
+- Added LIQUIDATION_REVERSAL, FUNDING_EXTREME_SIGNAL, and DIVERGENCE_CONTINUATION to `_SMC_GATE_EXEMPT_SETUPS`.
+- Stops systematic false suppression: all three setup classes now pass SMC hard gate when their own evaluator validates them.
+- File: src/scanner/__init__.py (_SMC_GATE_EXEMPT_SETUPS set).
+- Tests in tests/test_audit_findings.py: membership, preservation of existing exempt setups, gate behaviour simulation (exempt setups with low SMC pass; non-exempt setups with low SMC blocked).
+- PR #84 (duplicate) closed; PR #83 kept as more complete.
+
+### PR-ARCH-7A — Setup Identity / Classification Repair — PLANNED (next after ARCH-6)
+- Add missing setup classes to `SetupClass` enum and `_SELF_CLASSIFYING` frozenset.
+- Setups to add: `LIQUIDATION_REVERSAL`, `TREND_PULLBACK_EMA`, `WHALE_MOMENTUM`, `DIVERGENCE_CONTINUATION`, `SR_FLIP_RETEST`.
+- Effect: signals from these evaluators will carry their correct setup class instead of being silently reclassified as RANGE_FADE.
+
+### PR-ARCH-7B — Volatile Compatibility Fix — PLANNED (after ARCH-7A)
+- Add `LIQUIDATION_REVERSAL` to the volatile-compatible setup mapping so it is not suppressed in VOLATILE_UNSUITABLE market state.
+- Resolves structural suppression confirmed in architecture audit.
+
+### PR-ARCH-7C — `_SCALP_CHANNELS` Cleanup — PLANNED (after ARCH-7B)
+- Expand `_SCALP_CHANNELS` to include all scalp channels, or split into purposeful named sets.
+- Resolves inconsistent gate behaviour caused by 4 of 8 scalp channels being excluded.
+
+### PR-ARCH-8 — Scoring Integrity Fix — PLANNED (after ARCH-7C)
+- Move soft-penalty subtraction to after PR09 final score assignment.
+- Restores VWAP, kill zone, OI, spoof, volume divergence, and cluster penalties to actual effect on final confidence.
+- Replaces Phase C1 from prior confidence roadmap.
+
+### PR-ARCH-9 — Family-Aware TP / Risk-Plan Refinement — PLANNED (after ARCH-8)
+- Replace uniform `build_risk_plan()` overwrite with family-aware TP/SL logic.
+- Preserves universal hard risk controls (max SL %, min R:R); adds family-specific exit logic per signal family.
+- Replaces Phase C2 partially; scope refined after ARCH-8 is stable.
+
+### PR-ARCH-10 — Family-Based Confidence Scoring in PR09 — PLANNED (after ARCH-9)
+- Add order-flow thesis dimension to PR09 for reversal / positioning / divergence families.
+- Replaces Phase C2 remainder; full family-based scoring model.
 
 ### Confidence Architecture Roadmap (decided 2026-04-09)
 - **Phase C1:** Scoring integrity fix — restore soft-gate penalties after PR09 final score instead of letting them be overwritten. VWAP/OI/spoof/volume-divergence penalties survive and affect final confidence.
@@ -607,7 +664,7 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 | Min confidence ORDERBLOCK | 78 | MIN_CONFIDENCE_ORDERBLOCK |
 | Min confidence DIVERGENCE | 76 | MIN_CONFIDENCE_DIVERGENCE |
 | SMC hard gate | 12.0 | SMC_HARD_GATE_MIN |
-| SMC gate exemptions | ORB, QBREAK, SURGE, BREAKDOWN, SR_FLIP | hardcoded set in scanner |
+| SMC gate exemptions | ORB, QBREAK, SURGE, BREAKDOWN, SR_FLIP, LIQUIDATION_REVERSAL, FUNDING_EXTREME_SIGNAL, DIVERGENCE_CONTINUATION | hardcoded set in scanner (post-ARCH-6) |
 | Trend hard gate | 10.0 | TREND_HARD_GATE_MIN |
 | Trend gate exemptions | LIQUIDATION_REVERSAL, FUNDING_EXTREME, WHALE_MOMENTUM | hardcoded set in scanner |
 | QUIET_SCALP_MIN_CONFIDENCE | 65.0 | QUIET_SCALP_MIN_CONFIDENCE |
@@ -637,6 +694,8 @@ Complete diagnosis confirmed by direct code audit. True status of all 11 evaluat
 | Funding extreme threshold | 0.001 | FUNDING_RATE_EXTREME_THRESHOLD |
 | Snapshot interval | 300s | asyncio.sleep(300) in _snapshot_loop |
 | Snapshot combos | 550 | symbol-timeframe combos |
+
+> **Note — Soft-gate penalties (VWAP extension, kill zone, OI/funding, spoof/layering, volume divergence, cluster suppression):** These are architecturally present and accumulate correctly but are currently ineffective on final confidence because PR09 overwrites `sig.confidence` after accumulation. Will be restored by PR-ARCH-8 (scoring integrity fix).
 
 ---
 
@@ -679,16 +738,23 @@ Owner responsibilities:
 | Container health | UNHEALTHY label persists — false positive. Engine running fine. Heartbeat file missing inside container (_touch_heartbeat() OSError swallowed silently). Known issue, deferred. |
 | WS streams | 300 streams healthy |
 | Pairs scanning | 75 pairs |
-| Signals fired | All RANGE_FADE from _evaluate_standard — non-standard paths still blocked but architecture fixes in progress |
-| Signal path diversity | Architecture fixes underway: ARCH-1 cancelled, ARCH-2 IN PROGRESS, ARCH-3 QUEUED, ARCH-4 QUEUED, ARCH-5 MERGED |
+| Signals fired | Mostly RANGE_FADE / misclassified from _evaluate_standard — setup identity repair (ARCH-7A) is next priority |
+| Signal path diversity | ARCH-5 MERGED, ARCH-6 MERGED — next: setup identity/classification repair (ARCH-7A), not scoring changes yet |
+| Target architecture | Hybrid downstream model: path-specific evaluator generation + hybrid scoring/gates/SLTP by family |
 | PR-ARCH-1 | CANCELLED — previous architecture PRs cancelled due to agent task confusion |
 | PR-ARCH-2 | IN PROGRESS — winner-takes-all removal (ScalpChannel returns List[Signal]) |
 | PR-ARCH-3 | QUEUED — data pipeline wiring (funding_rate + cvd into smc_data) |
 | PR-ARCH-4 | QUEUED — setup classification bug fix (_SELF_CLASSIFYING frozenset) |
 | PR-ARCH-5 | MERGED (PR#81) — DIVERGENCE_CONTINUATION QUIET floor at 64.0 |
-| PR-ARCH-6 | PLANNED — SMC exemption corrections (LIQUIDATION_REVERSAL + FUNDING_EXTREME_SIGNAL) |
+| PR-ARCH-6 | MERGED (PR#83) — SMC exemption corrections: LIQUIDATION_REVERSAL, FUNDING_EXTREME_SIGNAL, DIVERGENCE_CONTINUATION |
+| PR-ARCH-7A | PLANNED — setup identity/classification repair (missing SetupClass + _SELF_CLASSIFYING entries) |
+| PR-ARCH-7B | PLANNED — volatile compatibility fix for LIQUIDATION_REVERSAL |
+| PR-ARCH-7C | PLANNED — _SCALP_CHANNELS cleanup (expand to all scalp channels or purposeful split) |
+| PR-ARCH-8 | PLANNED — scoring integrity fix (soft-penalty restoration after PR09) |
+| PR-ARCH-9 | PLANNED — family-aware TP/risk-plan refinement |
+| PR-ARCH-10 | PLANNED — family-based confidence scoring in PR09 |
 | PR14-hotfix | MERGED (PR#70) — TypeError in _post_signal_closed fixed |
-| Confidence architecture audit | COMPLETE — all 5 mismatches confirmed, hybrid target design chosen |
+| Architecture audit | COMPLETE — signal paths/confidence/gates/SL/TP all audited; hybrid model confirmed as target |
 | Market conditions | Extreme Fear (F&G=14), tariff shock, 40-44/75 pairs spread-blocked each cycle |
 | Protective mode | ENTERED repeatedly — volatile=21-33, spread_wide=16-52 per cycle |
 | Testing phase | Not started — begins once signal paths producing consistently |
@@ -697,6 +763,14 @@ Owner responsibilities:
 ---
 
 ## 11. Notes Log
+
+**2026-04-09 — Repository-wide architecture audit completed (signal paths / confidence / gates / SL/TP):**
+- Deep research task completed covering all four subsystems: signal paths, confidence scoring, gates, SL/TP design.
+- Signal paths: path-specific evaluator generation is correct and should be preserved; downstream handling should be hybrid by path family, not globally uniform.
+- Confidence: hybrid family-based target confirmed — shared base score + family-aware thesis dimension (order-flow for reversal/positioning families).
+- Gates: universal safety gates + family-aware policy gates + narrow setup-class exemptions is the right shape; globally uniform gates are architecturally wrong for non-sweep families.
+- SL/TP: universal risk controls (max SL %, min R:R) remain for all paths; family-aware TP/SL logic is the target to replace uniform `build_risk_plan()` overwrite.
+- Next safest implementation order: identity/classification repair (ARCH-7A) → volatile compatibility (ARCH-7B) → `_SCALP_CHANNELS` cleanup (ARCH-7C) → soft-penalty restoration (ARCH-8) → family-aware TP refinement (ARCH-9) → family-based confidence scoring (ARCH-10).
 
 **2026-04-09 — Confidence architecture audit completed:**
 - Deep research session completed: full 5-layer pipeline audit confirmed, all mismatches documented.
@@ -983,3 +1057,30 @@ Copilot appends to this automatically at the end of every session. No prompt nee
 - Raise PR-ARCH-3 (Data Pipeline Wiring) after ARCH-2 merges
 - Raise PR-ARCH-4 (Setup Classification Bug Fix) after ARCH-3 merges
 - Run VPS monitor after ARCH-1 merges — confirm new evaluator paths starting to appear in logs.
+
+### Session — 2026-04-09 (Repository-Wide Architecture Audit + ARCH-6 Merged + PR Roadmap Update)
+
+**What was discussed:**
+- Deep research task completed covering all four subsystems: signal paths, confidence scoring, gates, and SL/TP design.
+- Audit answered whether each subsystem should be uniform, hybrid, or path-specific, and produced a practical PR roadmap.
+- Architecture decision confirmed: hybrid downstream model — signal generation stays path-specific at evaluator level, but scoring / gates / SL/TP should not remain globally uniform.
+- PR-ARCH-6 created and merged (PR#83): LIQUIDATION_REVERSAL, FUNDING_EXTREME_SIGNAL, and DIVERGENCE_CONTINUATION added to `_SMC_GATE_EXEMPT_SETUPS`. Duplicate PR #84 closed.
+- Key confirmed mismatches recorded: missing setup identities in SetupClass/_SELF_CLASSIFYING, LIQUIDATION_REVERSAL volatile suppression, _SCALP_CHANNELS excluding 4 of 8 scalp channels, soft-gate penalties overwritten by PR09, evaluator TP logic overwritten by build_risk_plan().
+
+**What was decided:**
+- Next implementation order updated to start with setup identity/classification repair, not scoring changes.
+- PR-ARCH-7A: add missing setup classes to SetupClass and _SELF_CLASSIFYING (LIQUIDATION_REVERSAL, TREND_PULLBACK_EMA, WHALE_MOMENTUM, DIVERGENCE_CONTINUATION, SR_FLIP_RETEST).
+- PR-ARCH-7B: volatile compatibility fix for LIQUIDATION_REVERSAL.
+- PR-ARCH-7C: _SCALP_CHANNELS cleanup (expand or purposeful split).
+- PR-ARCH-8: scoring integrity fix (soft-penalty restoration after PR09 final score).
+- PR-ARCH-9: family-aware TP/risk-plan refinement.
+- PR-ARCH-10: family-based confidence scoring in PR09.
+
+**What was built:**
+- OWNER_BRIEF.md updated: Section 6 (repository-wide architecture audit conclusions + confirmed mismatches), Section 7 (ARCH-6 status changed to MERGED, new ARCH-7A/7B/7C/8/9/10 roadmap entries), Section 8 (SMC exemption row updated for post-ARCH-6 state, soft-gate penalty note added), Section 10 (current state reflects ARCH-5 and ARCH-6 merged, target architecture declared, full next-PR roadmap), Section 11 (new dated note), Section 12 (this entry).
+
+**Next actions:**
+- Merge or monitor PR-ARCH-2 (winner-takes-all removal).
+- Raise PR-ARCH-7A — setup identity/classification repair.
+- Run VPS monitor after ARCH-7A merges — confirm correct setup classes appear in signal output.
+- Continue architecture fixes in order: 7B → 7C → 8 → 9 → 10.
