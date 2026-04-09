@@ -99,20 +99,8 @@ jobs:
           echo "$SEP"
           # The heartbeat file lives inside the container on a named Docker volume.
           # The host path ~/360-v2/data/ does not exist — must read from container directly.
-          HEARTBEAT_RESULT=$(docker exec 360scalp-v2-engine python3 -c "
-import os, time
-p = '/app/data/scanner_heartbeat'
-if os.path.exists(p):
-    age = int(time.time() - os.path.getmtime(p))
-    print(f'Heartbeat age: {age}s')
-    if age > 120:
-        print(f'WARNING: Heartbeat is STALE ({age}s > 120s) — scanner loop may be hung')
-    else:
-        print('OK: Heartbeat fresh — scanner loop is alive')
-else:
-    print('NOT FOUND: /app/data/scanner_heartbeat does not exist inside container')
-    print('Scanner has not completed its first cycle yet, or _touch_heartbeat() is failing silently')
-" 2>/dev/null)
+          HBCODE=$(echo 'aW1wb3J0IG9zLCB0aW1lCnAgPSAnL2FwcC9kYXRhL3NjYW5uZXJfaGVhcnRiZWF0JwppZiBvcy5wYXRoLmV4aXN0cyhwKToKICAgIGFnZSA9IGludCh0aW1lLnRpbWUoKSAtIG9zLnBhdGguZ2V0bXRpbWUocCkpCiAgICBwcmludChmJ0hlYXJ0YmVhdCBhZ2U6IHthZ2V9cycpCiAgICBpZiBhZ2UgPiAxMjA6CiAgICAgICAgcHJpbnQoZidXQVJOSU5HOiBIZWFydGJlYXQgaXMgU1RBTEUgKHthZ2V9cyA+IDEyMHMpIOKAlCBzY2FubmVyIGxvb3AgbWF5IGJlIGh1bmcnKQogICAgZWxzZToKICAgICAgICBwcmludCgnT0s6IEhlYXJ0YmVhdCBmcmVzaCDigJQgc2Nhbm5lciBsb29wIGlzIGFsaXZlJykKZWxzZToKICAgIHByaW50KCdOT1QgRk9VTkQ6IC9hcHAvZGF0YS9zY2FubmVyX2hlYXJ0YmVhdCBkb2VzIG5vdCBleGlzdCBpbnNpZGUgY29udGFpbmVyJykKICAgIHByaW50KCdTY2FubmVyIGhhcyBub3QgY29tcGxldGVkIGl0cyBmaXJzdCBjeWNsZSB5ZXQsIG9yIF90b3VjaF9oZWFydGJlYXQoKSBpcyBmYWlsaW5nIHNpbGVudGx5JykK' | base64 -d)
+          HEARTBEAT_RESULT=$(echo "$HBCODE" | docker exec -i 360scalp-v2-engine python3 2>/dev/null)
           if [ -z "$HEARTBEAT_RESULT" ]; then
               echo "ERROR: Could not exec into container — container may be down or exec disabled"
           else
