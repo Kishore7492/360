@@ -999,7 +999,6 @@ class TestSrFlipRetestRefinements:
         """
         m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
         m5["close"][-1] = 100.2   # 0.2% above level — premium zone
-        m5["opens"] = m5["open"]
         candles = {"5m": m5}
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
         assert sig is not None

@@ -1480,9 +1480,11 @@ class ScalpChannel(BaseChannel):
 
         # Structural level identification.
         # Prior window ([-50:-8]) provides 42 candles of genuine prior structure.
-        # Flip search window ([-8:]) is the 8-candle zone where the break must occur.
-        # Layout: [...prior (42) │ flip search (8) │ current (1)]
-        #          highs[-50:-8]   highs[-8:-1]      highs[-1]
+        # Flip search window ([-8:]) is the 8-candle zone where the break must have
+        # occurred; it includes the current (still-forming) candle at [-1] because the
+        # current candle's high may itself constitute the flip candle in fast moves.
+        # Layout: [...prior (42) │ flip search + current (8)]
+        #          highs[-50:-8]   highs[-8:]
         # The extended 8-candle flip window (up from 5) accommodates retests that
         # arrive 6–7 bars after the structural break.
         prior_highs = [float(h) for h in highs[-50:-8]]
