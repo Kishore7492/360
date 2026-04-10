@@ -698,6 +698,19 @@ def execution_quality_check(
             signal.entry > anchor if signal.direction == Direction.LONG else signal.entry < anchor
         )
         note = "Enter on continuation after sweep reclaim; structural invalidation is a return below swept level."
+    elif setup == SetupClass.POST_DISPLACEMENT_CONTINUATION:
+        # Anchor is the consolidation breakout level (consol_high for LONG,
+        # consol_low for SHORT).  Stored on the signal by the evaluator to avoid
+        # EMA21 anchoring which has no relationship to the PDC thesis.
+        anchor = getattr(signal, "pdc_breakout_level", signal.entry)
+        trigger_confirmed = (
+            signal.entry > anchor if signal.direction == Direction.LONG
+            else signal.entry < anchor
+        )
+        note = (
+            "Enter on re-acceleration breakout above consolidation; "
+            "structural invalidation is a return into the consolidation range."
+        )
     else:
         anchor = ema_anchor
         trigger_confirmed = (
@@ -719,6 +732,10 @@ def execution_quality_check(
         SetupClass.VOLUME_SURGE_BREAKOUT: 1.5,
         SetupClass.BREAKDOWN_SHORT: 1.5,
         SetupClass.CONTINUATION_LIQUIDITY_SWEEP: 1.3,
+        # PDC fires on the re-acceleration breakout immediately after tight consolidation.
+        # The entry should be very close to the breakout level; cap at 1.0 ATR to reject
+        # stale entries taken too far into the re-acceleration move.
+        SetupClass.POST_DISPLACEMENT_CONTINUATION: 1.0,
     }.get(setup, 1.5)
     passed = trigger_confirmed and extension_ratio <= max_extension
     zone_low = min(anchor, signal.entry)

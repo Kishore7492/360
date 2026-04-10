@@ -2860,6 +2860,15 @@ class ScalpChannel(BaseChannel):
         sig.trailing_stage = 0
         sig.partial_close_pct = 0.0
 
+        # Store the consolidation breakout level so that execution_quality_check()
+        # can use it as the structural anchor (rather than falling back to EMA21,
+        # which is irrelevant to the displacement/consolidation thesis).
+        # For LONG: the breakout level is consol_high (price broke above this).
+        # For SHORT: the breakout level is consol_low (price broke below this).
+        sig.pdc_breakout_level = round(
+            consol_high if direction == Direction.LONG else consol_low, 8
+        )
+
         # Accumulate soft penalties — deducted from confidence post-PR09 by scanner
         total_penalty = rsi_penalty + fvg_ob_penalty + consol_vol_penalty
         if total_penalty > 0.0:
