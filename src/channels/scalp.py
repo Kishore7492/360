@@ -1433,9 +1433,13 @@ class ScalpChannel(BaseChannel):
         """SR_FLIP_RETEST: support/resistance flip retest with rejection candle.
 
         Refinements vs. original:
-        - Flip detection window extended from 5 to 8 candles, accommodating retests
-          that arrive 6–7 bars after the structural break — common in live crypto where
-          the retest candle does not always immediately follow the breakout candle.
+        - Flip detection window extended from 5 to 8 closed prior candles.  The current
+          (still-forming) candle is excluded from the flip search, preserving true
+          structural-retest semantics: the flip must be confirmed on a prior closed
+          candle before the current candle can serve as the retest signal.  This
+          accommodates retests that arrive 6–7 bars after the structural break — common
+          in live crypto where the retest candle does not always immediately follow the
+          breakout candle.
         - Retest proximity expanded from a 0.3% hard gate to a layered zone system.
           Premium zone (0–0.3% from flipped level) passes with no soft penalty.
           Extended zone (0.3%–0.6%) accumulates a +3.0 soft penalty, reflecting a
@@ -1479,17 +1483,19 @@ class ScalpChannel(BaseChannel):
             return None
 
         # Structural level identification.
-        # Prior window ([-50:-8]) provides 42 candles of genuine prior structure.
-        # Flip search window ([-8:]) covers 8 candles including the current (still-forming)
-        # candle at [-1]; the current candle's high may itself be the flip candle in fast moves.
-        # Layout: [...prior (42) │ flip search window (8 candles including current)]
-        #          highs[-50:-8]   highs[-8:]
-        # The extended 8-candle flip window (up from 5) accommodates retests that
+        # Prior window ([-50:-9]) provides 41 candles of genuine prior structure.
+        # Flip search window ([-9:-1]) covers the 8 most recent *closed* candles,
+        # explicitly excluding the current (still-forming) candle at [-1].  This
+        # preserves true structural-retest semantics: the flip must be confirmed on a
+        # prior closed candle before the current candle can be treated as the retest.
+        # Layout: [...prior (41) │ closed flip search (8) │ current (1)]
+        #          highs[-50:-9]   highs[-9:-1]              highs[-1]
+        # The 8-candle closed search window (up from 5) accommodates retests that
         # arrive 6–7 bars after the structural break.
-        prior_highs = [float(h) for h in highs[-50:-8]]
-        prior_lows = [float(l) for l in lows[-50:-8]]
-        recent_highs = [float(h) for h in highs[-8:]]
-        recent_lows = [float(l) for l in lows[-8:]]
+        prior_highs = [float(h) for h in highs[-50:-9]]
+        prior_lows = [float(l) for l in lows[-50:-9]]
+        recent_highs = [float(h) for h in highs[-9:-1]]
+        recent_lows = [float(l) for l in lows[-9:-1]]
 
         prior_swing_high = max(prior_highs)
         prior_swing_low = min(prior_lows)

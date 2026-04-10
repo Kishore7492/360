@@ -977,17 +977,17 @@ class TestSrFlipRetestRefinements:
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
         assert sig is not None, "Flip 6 candles ago should now be accepted."
 
-    def test_flip_at_minus8_accepted(self):
-        """Flip at candle[-8]: boundary of extended window — should be accepted."""
-        candles = {"5m": _make_srflip_candles_long(n=60, flip_offset=8)}
-        sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
-        assert sig is not None, "Flip 8 candles ago should be accepted (boundary of window)."
-
-    def test_flip_at_minus9_rejected(self):
-        """Flip at candle[-9]: outside the 8-candle window — must be rejected."""
+    def test_flip_at_minus9_accepted(self):
+        """Flip at candle[-9]: new boundary of closed-candle window — should be accepted."""
         candles = {"5m": _make_srflip_candles_long(n=60, flip_offset=9)}
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
-        assert sig is None, "Flip 9 candles ago (outside 8-candle window) must be rejected."
+        assert sig is not None, "Flip 9 closed candles ago should be accepted (boundary of window)."
+
+    def test_flip_at_minus10_rejected(self):
+        """Flip at candle[-10]: outside the 8-closed-candle window — must be rejected."""
+        candles = {"5m": _make_srflip_candles_long(n=60, flip_offset=10)}
+        sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
+        assert sig is None, "Flip 10 candles ago (outside 8-closed-candle window) must be rejected."
 
     # ── Retest proximity zone ─────────────────────────────────────────────
 
