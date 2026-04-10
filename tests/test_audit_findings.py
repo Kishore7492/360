@@ -274,7 +274,7 @@ class TestHealthcheckHeartbeat:
     """Test the heartbeat freshness logic used in healthcheck.py."""
 
     _MAX_AGE = 120.0
-    _GRACE = 180
+    _GRACE_PERIOD_SECONDS = 180
 
     @staticmethod
     def _heartbeat_fresh(path: str, engine_pid=None, max_age: float = 120.0, grace: int = 180) -> bool:
@@ -282,13 +282,13 @@ class TestHealthcheckHeartbeat:
 
         engine_pid is used to compute engine uptime for the grace period check.
         Pass None to simulate 'engine PID unknown' (treated as past grace period).
-        Pass an integer to simulate a specific engine PID (we mock _engine_uptime_seconds).
+        Pass a numeric value (int or float, not bool) to use directly as uptime
+        in seconds — bool is excluded because bool is a subclass of int in Python
+        and True/False would otherwise be silently treated as 1/0 seconds.
         """
-        import sys as _sys
-
         if not os.path.isfile(path):
-            # Simulate uptime lookup: if engine_pid is a float, treat it as the
-            # uptime value directly (for test convenience).
+            # Accept int or float as a direct uptime value; exclude bool to
+            # prevent True/False being silently coerced to 1/0.
             if isinstance(engine_pid, (int, float)) and not isinstance(engine_pid, bool):
                 uptime = float(engine_pid)
             else:
@@ -342,18 +342,9 @@ class TestHealthcheckEngineUptime:
 
     def test_engine_uptime_returns_float_for_running_process(self):
         """_engine_uptime_seconds should return a non-negative float for a real PID."""
-        import importlib.util
-        import sys as _sys
-
-        spec = importlib.util.spec_from_file_location(
-            "_hc", os.path.join(os.path.dirname(__file__), os.pardir, "healthcheck.py")
-        )
-        # We can't exec the module-level code (it would run the health probe),
-        # so we load and extract just the helper functions via source inspection.
-        # Instead, test the logic directly using os.getpid() — the current
-        # process definitely exists in /proc.
+        # Test the /proc/stat parsing logic directly using the current process PID,
+        # which is guaranteed to exist in /proc.
         pid = os.getpid()
-        # Read /proc/<pid>/stat manually as the function would
         try:
             with open(f"/proc/{pid}/stat") as fh:
                 stat = fh.read()

@@ -65,6 +65,8 @@ def _engine_uptime_seconds(pid: int) -> float:
         #   priority nice num_threads itrealvalue starttime …
         # starttime is at index 19 (0-based) in this slice.
         fields = stat[rpar + 2:].split()
+        if len(fields) < 20:
+            return _UNKNOWN_UPTIME_SECONDS
         starttime_ticks = int(fields[19])
         clk_tck = os.sysconf("SC_CLK_TCK")
         with open("/proc/uptime") as fh:
@@ -110,9 +112,10 @@ def _scanner_heartbeat_fresh(engine_pid: Optional[int]) -> bool:
         )
         if uptime < _HEARTBEAT_GRACE_PERIOD_SECONDS:
             return True  # Engine still within startup grace period
+        uptime_str = f"~{uptime:.0f}s" if uptime != _UNKNOWN_UPTIME_SECONDS else "unknown"
         print(
             f"Heartbeat file missing after grace period "
-            f"(engine uptime ~{uptime:.0f}s, grace={_HEARTBEAT_GRACE_PERIOD_SECONDS}s). "
+            f"(engine uptime {uptime_str}, grace={_HEARTBEAT_GRACE_PERIOD_SECONDS}s). "
             f"Expected at: {_HEARTBEAT_PATH}",
             file=sys.stderr,
         )
