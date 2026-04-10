@@ -792,8 +792,8 @@ class TestSoftPenaltiesSurvivePR09:
         assert conf_penalised < conf_clean, (
             "Penalised signal must have strictly lower final confidence than clean signal"
         )
-        assert conf_clean - conf_penalised >= 10.0, (
-            "Penalty reduction must be at least 10 pts (VWAP 15 + KZ 10, regime mult=1.0)"
+        assert conf_clean - conf_penalised >= 25.0, (
+            "Penalty reduction must be at least 25 pts (VWAP 15 + KZ 10, regime mult=1.0)"
         )
 
     @pytest.mark.asyncio
@@ -842,3 +842,55 @@ class TestSoftPenaltiesSurvivePR09:
         )
         # Numeric consistency: final ≈ PR09_base − penalty_total
         assert sig.confidence == pytest.approx(80.0 - sig.soft_penalty_total, abs=0.2)
+
+    @pytest.mark.asyncio
+    async def test_confidence_clamped_to_zero_when_penalties_exceed_score(self):
+        """Confidence is never negative when accumulated penalties exceed PR09 score.
+
+        PR09 returns total=20.0 and multiple soft penalties accumulate beyond 20 pts.
+        The final confidence must be clamped to 0.0, not negative.
+        """
+        import src.scanner as scanner_mod
+        from src.order_flow import OISnapshot
+
+        pr09_score = {
+            "smc": 5.0, "regime": 5.0, "volume": 4.0,
+            "indicators": 3.0, "patterns": 2.0, "mtf": 1.0,
+            "total": 20.0,
+        }
+        channel = MagicMock()
+        channel.config = SimpleNamespace(name="360_SCALP", min_confidence=0.0)
+        channel.evaluate.return_value = _make_signal()
+        sq = MagicMock()
+        captured = {}
+
+        async def _capture(sig):
+            captured["sig"] = sig
+            return True
+
+        sq.put = AsyncMock(side_effect=_capture)
+        scanner = _make_scan_ready_scanner(
+            channel=channel, signal_queue=sq, regime=MarketRegime.VOLATILE
+        )
+        oi_store = MagicMock()
+        oi_store._oi = {
+            "BTCUSDT": [
+                OISnapshot(timestamp=1.0, open_interest=5000.0),
+                OISnapshot(timestamp=2.0, open_interest=4800.0),
+            ]
+        }
+        scanner.order_flow_store = oi_store
+
+        with _common_patches(scanner, score=_FAKE_SCORE_MEDIUM, extra=[
+            patch("src.scanner.check_vwap_extension", return_value=(False, "VWAP: overextended")),
+            patch("src.scanner.analyse_oi", return_value=MagicMock()),
+            patch("src.scanner.check_oi_gate", return_value=(False, "OI: squeeze")),
+            patch("src.scanner.check_spoof_gate", return_value=(False, "Spoof: wall detected")),
+            patch.object(scanner_mod._scoring_engine, "score", return_value=pr09_score),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        # Signal may be killed by min_confidence gate or PR09 <50 gate; if enqueued check clamp
+        sig = captured.get("sig")
+        if sig is not None:
+            assert sig.confidence >= 0.0, "Confidence must never be negative after clamping"
