@@ -298,7 +298,71 @@ class TestExecutionAndRiskChecks:
         assert result.trigger_confirmed is False
         assert result.passed is False
 
-    def test_structure_first_risk_plan_updates_targets(self):
+    def test_pdc_trigger_confirmed_when_entry_above_breakout_level(self):
+        """PDC LONG: entry above consolidation breakout level → trigger confirmed."""
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 101.5          # above consolidation high
+        signal.pdc_breakout_level = 101.0   # consolidation high (breakout level)
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.POST_DISPLACEMENT_CONTINUATION,
+            MarketState.STRONG_TREND,
+        )
+        assert result.trigger_confirmed is True
+        assert result.passed is True
+        assert "re-acceleration" in result.execution_note
+        assert "consolidation" in result.execution_note
+
+    def test_pdc_trigger_not_confirmed_when_entry_at_breakout_level(self):
+        """PDC LONG: entry exactly at consolidation breakout level → trigger not confirmed."""
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 101.0
+        signal.pdc_breakout_level = 101.0   # not yet broken out
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.POST_DISPLACEMENT_CONTINUATION,
+            MarketState.STRONG_TREND,
+        )
+        assert result.trigger_confirmed is False
+        assert result.passed is False
+        assert "trigger" in result.reason
+
+    def test_pdc_short_trigger_confirmed_when_entry_below_breakout_level(self):
+        """PDC SHORT: entry below consolidation floor → trigger confirmed."""
+        signal = _signal(channel="360_SCALP", direction=Direction.SHORT)
+        signal.entry = 98.5           # below consolidation low
+        signal.stop_loss = 101.0      # above entry for short
+        signal.pdc_breakout_level = 99.0    # consolidation low (breakout level)
+        result = execution_quality_check(
+            signal, _indicators(), _smc(direction=Direction.SHORT),
+            SetupClass.POST_DISPLACEMENT_CONTINUATION, MarketState.STRONG_TREND,
+        )
+        assert result.trigger_confirmed is True
+        assert result.passed is True
+
+    def test_pdc_overextended_entry_rejected(self):
+        """PDC: entry overextended from breakout level (> 1.0 ATR) → rejected."""
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 103.5           # well above consolidation high
+        signal.pdc_breakout_level = 101.0
+        # atr_last = 1.4 (from _indicators), extension = (103.5 - 101.0) / 1.4 ≈ 1.79 > 1.0
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.POST_DISPLACEMENT_CONTINUATION,
+            MarketState.STRONG_TREND,
+        )
+        assert result.passed is False
+        assert "overextended" in result.reason
+
+    def test_pdc_fallback_when_no_breakout_level_stored(self):
+        """PDC: signal without pdc_breakout_level attribute falls back to entry anchor."""
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.0
+        # No pdc_breakout_level attribute — fallback to entry → extension = 0
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.POST_DISPLACEMENT_CONTINUATION,
+            MarketState.STRONG_TREND,
+        )
+        # With anchor == entry, extension_ratio == 0 and trigger_confirmed == False
+        # (entry is not > entry). The important thing is no KeyError is raised.
+        assert result is not None
         signal = _signal(channel="360_SWING")
         risk = build_risk_plan(signal, _indicators(), {"1h": _candles()}, _smc(), SetupClass.TREND_PULLBACK_CONTINUATION, 0.008)
         assert risk.passed is True
