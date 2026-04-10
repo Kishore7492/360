@@ -36,6 +36,7 @@ class SetupClass(str, Enum):
     DIVERGENCE_CONTINUATION = "DIVERGENCE_CONTINUATION"
     CONTINUATION_LIQUIDITY_SWEEP = "CONTINUATION_LIQUIDITY_SWEEP"
     POST_DISPLACEMENT_CONTINUATION = "POST_DISPLACEMENT_CONTINUATION"
+    FAILED_AUCTION_RECLAIM = "FAILED_AUCTION_RECLAIM"
 
 
 class MarketState(str, Enum):
@@ -74,6 +75,7 @@ CHANNEL_SETUP_COMPATIBILITY: Dict[str, set[SetupClass]] = {
         SetupClass.DIVERGENCE_CONTINUATION,
         SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
         SetupClass.POST_DISPLACEMENT_CONTINUATION,
+        SetupClass.FAILED_AUCTION_RECLAIM,
     },
     "360_SCALP_FVG": {
         SetupClass.TREND_PULLBACK_CONTINUATION,
@@ -158,6 +160,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.LIQUIDATION_REVERSAL,
         SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
         SetupClass.POST_DISPLACEMENT_CONTINUATION,
+        # FAR: valid in weak trend — breakouts often fail when trend conviction is low
+        SetupClass.FAILED_AUCTION_RECLAIM,
     },
     MarketState.CLEAN_RANGE: {
         SetupClass.RANGE_REJECTION,
@@ -169,6 +173,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.QUIET_COMPRESSION_BREAK,
         SetupClass.LIQUIDATION_REVERSAL,
+        # FAR: prime regime — failed breakouts at range extremes are the canonical setup
+        SetupClass.FAILED_AUCTION_RECLAIM,
     },
     MarketState.DIRTY_RANGE: {
         SetupClass.LIQUIDITY_SWEEP_REVERSAL,
@@ -178,6 +184,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.QUIET_COMPRESSION_BREAK,
         SetupClass.LIQUIDATION_REVERSAL,
+        # FAR: valid in dirty range — structure still exists despite noise
+        SetupClass.FAILED_AUCTION_RECLAIM,
     },
     MarketState.BREAKOUT_EXPANSION: {
         SetupClass.BREAKOUT_RETEST,
@@ -194,6 +202,8 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.LIQUIDATION_REVERSAL,
         SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
         SetupClass.POST_DISPLACEMENT_CONTINUATION,
+        # FAR: false breakouts at expansion boundaries are structurally valid
+        SetupClass.FAILED_AUCTION_RECLAIM,
     },
     MarketState.VOLATILE_UNSUITABLE: {
         # Whale-driven and liquidity-sweep signals are valid precisely in
@@ -592,6 +602,8 @@ def classify_setup(
         "SR_FLIP_RETEST",
         "CONTINUATION_LIQUIDITY_SWEEP",
         "POST_DISPLACEMENT_CONTINUATION",
+        # Roadmap step 7: failed auction / failed acceptance reversal
+        "FAILED_AUCTION_RECLAIM",
     })
     _sig_setup_class = getattr(signal, "setup_class", "")
     if _sig_setup_class in _SELF_CLASSIFYING:
@@ -711,6 +723,21 @@ def execution_quality_check(
             "Enter on re-acceleration breakout above consolidation; "
             "structural invalidation is a return into the consolidation range."
         )
+    elif setup == SetupClass.FAILED_AUCTION_RECLAIM:
+        # Anchor is the reclaim level — the structural boundary that was broken
+        # and then reclaimed.  Stored on the signal by the evaluator as
+        # far_reclaim_level.  Trigger is confirmed when the current entry is
+        # beyond that level in the reclaim direction (price is already inside
+        # prior structure, not still below/above the tested level).
+        anchor = getattr(signal, "far_reclaim_level", signal.entry)
+        trigger_confirmed = (
+            signal.entry > anchor if signal.direction == Direction.LONG
+            else signal.entry < anchor
+        )
+        note = (
+            "Enter after failed auction reclaim is confirmed; "
+            "structural invalidation is a return to or below the failed-auction wick extreme."
+        )
     else:
         anchor = ema_anchor
         trigger_confirmed = (
@@ -736,6 +763,10 @@ def execution_quality_check(
         # The entry should be very close to the breakout level; cap at 1.0 ATR to reject
         # stale entries taken too far into the re-acceleration move.
         SetupClass.POST_DISPLACEMENT_CONTINUATION: 1.0,
+        # FAR: entry follows the reclaim of the structural level.  Allow slightly
+        # more room than PDC because the reclaim move itself creates separation from
+        # the anchor; cap at 1.2 ATR to reject stale entries chasing the reversal.
+        SetupClass.FAILED_AUCTION_RECLAIM: 1.2,
     }.get(setup, 1.5)
     passed = trigger_confirmed and extension_ratio <= max_extension
     zone_low = min(anchor, signal.entry)
