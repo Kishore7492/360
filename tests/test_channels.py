@@ -246,6 +246,7 @@ class TestWhaleMomentumRsiRefinements:
         """RSI = 65 (optimal zone) for LONG — accepted with no RSI penalty."""
         sig = self._call(rsi_val=65.0)
         assert sig is not None
+        assert sig.direction == Direction.LONG
         assert sig.soft_penalty_total == 0.0
 
     def test_rsi_72_long_accepted_with_soft_penalty(self):
@@ -288,6 +289,7 @@ class TestWhaleMomentumRsiRefinements:
         """RSI = 35 (optimal zone) for SHORT — accepted with no RSI penalty."""
         sig = self._call_short(rsi_val=35.0)
         assert sig is not None
+        assert sig.direction == Direction.SHORT
         assert sig.soft_penalty_total == 0.0
 
     def test_rsi_28_short_accepted_with_soft_penalty(self):

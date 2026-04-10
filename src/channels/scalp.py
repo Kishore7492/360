@@ -876,17 +876,19 @@ class ScalpChannel(BaseChannel):
             sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
             sig.trailing_stage = 0
             sig.partial_close_pct = 0.0
-            # Apply soft penalties in descending order of severity
+            # Accumulate soft penalties then assign once.
+            _penalty = getattr(sig, "soft_penalty_total", 0.0)
             if not obi_confirmed:
                 # No order book available — signal is valid on tick-flow alone
                 # but carries lower certainty.
-                sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + 10.0
+                _penalty += 10.0
             if obi_penalty > 0:
                 # Marginal OBI in fast regime: weaker confirmation layer.
-                sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + obi_penalty
+                _penalty += obi_penalty
             if rsi_penalty > 0:
                 # Borderline RSI: signal may still be valid but with lower certainty.
-                sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + rsi_penalty
+                _penalty += rsi_penalty
+            sig.soft_penalty_total = _penalty
         return sig
 
     # ------------------------------------------------------------------
