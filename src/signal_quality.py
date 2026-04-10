@@ -1275,15 +1275,14 @@ class SignalScoringEngine:
           volume, CVD divergence aligned with direction, and contrarian
           funding rate are the primary thesis signals for this family.
 
-        **Order-Flow / Divergence family** (DIVERGENCE_CONTINUATION,
-        WHALE_MOMENTUM):
+        **Order-Flow / Divergence family** (DIVERGENCE_CONTINUATION):
         - CVD/OI divergence bonus (max +6 pts): confirmed divergence in the
           trade direction earns a positive thesis bonus; contra divergence
           applies a small penalty.
 
         **All other families** (trend/continuation, breakout/measured-move,
-        quiet-specialist): 0 adjustment — the shared base scoring is
-        appropriate for these paths.
+        quiet-specialist, WHALE_MOMENTUM): 0 adjustment — the shared base
+        scoring is appropriate for these paths.
 
         Returns
         -------
