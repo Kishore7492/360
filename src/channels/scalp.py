@@ -89,12 +89,13 @@ _FAST_STRUCTURAL_REGIMES: frozenset = frozenset({
 })
 
 # CONTINUATION_LIQUIDITY_SWEEP path constants.
-# Regimes where the sweep-continuation setup is valid.  VOLATILE and
-# VOLATILE_UNSUITABLE are hard-blocked because chaotic orderflow invalidates
-# the structural continuation thesis.
+# Regimes where the sweep-continuation setup is valid.  VOLATILE,
+# VOLATILE_UNSUITABLE, RANGING, and QUIET are all hard-blocked:
+# VOLATILE/VOLATILE_UNSUITABLE — chaotic orderflow invalidates continuation;
+# RANGING/QUIET — no directional trend to continue into.
 _CLS_VALID_REGIMES: frozenset = frozenset({
     "TRENDING_UP", "TRENDING_DOWN", "STRONG_TREND", "WEAK_TREND",
-    "BREAKOUT_EXPANSION", "RANGING", "QUIET",
+    "BREAKOUT_EXPANSION",
 })
 # Max candle offset (back from current) where a sweep is still considered
 # "recent enough" to anchor a continuation entry.
@@ -2289,10 +2290,11 @@ class ScalpChannel(BaseChannel):
         - No FVG or orderblock in target zone: +8 pts
         - Sweep is older (6–10 candles back, not 1–5): +5 pts
         """
-        # Hard block in VOLATILE/VOLATILE_UNSUITABLE — chaotic orderflow
-        # invalidates the structural continuation thesis.
+        # Hard block regimes where the continuation thesis does not apply:
+        # - VOLATILE/VOLATILE_UNSUITABLE: chaotic orderflow invalidates structure
+        # - RANGING/QUIET: no directional trend exists to continue
         regime_upper = regime.upper() if regime else ""
-        if regime_upper in ("VOLATILE", "VOLATILE_UNSUITABLE"):
+        if regime_upper not in _CLS_VALID_REGIMES:
             return None
 
         m5 = candles.get("5m")

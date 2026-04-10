@@ -1663,13 +1663,21 @@ class TestContinuationLiquiditySweep:
         )
         assert sig is None, "VOLATILE_UNSUITABLE must be hard-blocked for CLS."
 
-    def test_ranging_regime_allowed(self):
-        """RANGING regime is allowed — EMA alignment gate provides directional filter."""
+    def test_ranging_regime_hard_blocked(self):
+        """RANGING regime must hard-block CLS — no directional trend to continue."""
         candles = {"5m": _make_cls_candles_long(close_price=100.5)}
         sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
         smc_data = {"sweeps": [sweep]}
         sig = self._call_long(candles, _cls_indicators_long(), smc_data, regime="RANGING")
-        assert sig is not None, "RANGING should be allowed when EMA alignment is bullish."
+        assert sig is None, "RANGING must be hard-blocked for CLS — no trend to continue."
+
+    def test_quiet_regime_hard_blocked(self):
+        """QUIET regime must hard-block CLS — low-volume range, not a trend."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data, regime="QUIET")
+        assert sig is None, "QUIET must be hard-blocked for CLS — no trend to continue."
 
     def test_trending_up_regime_allowed_for_long(self):
         """TRENDING_UP + LONG EMA alignment → setup fires."""
