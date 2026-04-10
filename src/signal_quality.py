@@ -904,9 +904,12 @@ def build_risk_plan(
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.OPENING_RANGE_BREAKOUT,
         SetupClass.QUIET_COMPRESSION_BREAK,
+        SetupClass.BREAKDOWN_SHORT,
     ):
-        # Measured-move breakout families: breakout should travel a full
-        # measured move — allow larger extensions than continuation plays.
+        # Measured-move breakout/breakdown families: breakout/breakdown should
+        # travel a full measured move — allow larger extensions than
+        # continuation plays.  BREAKDOWN_SHORT is the directional short
+        # equivalent of the upside breakout families.
         tp1 = signal.entry + risk * 1.5 if _is_long else signal.entry - risk * 1.5
         tp2 = signal.entry + risk * 2.8 if _is_long else signal.entry - risk * 2.8
         tp3 = signal.entry + risk * 4.0 if _is_long else signal.entry - risk * 4.0

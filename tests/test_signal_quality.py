@@ -697,6 +697,7 @@ class TestFamilyAwareTP:
         SetupClass.VOLUME_SURGE_BREAKOUT,
         SetupClass.OPENING_RANGE_BREAKOUT,
         SetupClass.QUIET_COMPRESSION_BREAK,
+        SetupClass.BREAKDOWN_SHORT,
     ])
     def test_breakout_tp1_is_extended(self, setup):
         """Measured-move breakout families must use tp1 ≈ 1.5R (larger than default 1.3R)."""
