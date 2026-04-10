@@ -819,10 +819,10 @@ class TestBreakdownShortRefinements:
 def _make_srflip_candles_long(n=60, flip_offset=3, level=100.0):
     """Build candle data satisfying LONG SR_FLIP_RETEST conditions.
 
-    Layout (relative to the final candle, i.e. candle[-1]):
-    - Prior window highs[-50:-8]: set to `level` exactly, establishing prior_swing_high.
-    - Flip candle at -flip_offset: high = level + 1.0 (breaks prior swing high).
-    - Remaining recent candles (non-flip, in [-8:] window): high = level + 0.3.
+    Array slice positions (Python negative indexing, n=60):
+    - Prior window highs[-50:-8]: 42 candles; all set to `level`, establishing prior_swing_high.
+    - Flip candle at index n-flip_offset (i.e. highs[-flip_offset]): high = level + 1.0.
+    - Remaining candles in the 8-candle window highs[-8:] (non-flip): high = level + 0.3.
     - Current candle [-1]: close = level * 1.001 (0.1% above level — premium zone),
       open = level * 1.0015, high = level * 1.002, low = level * 0.999.
       → lower_wick = open - low ≈ 0.25, candle_body = |close - open| ≈ 0.05,
@@ -866,10 +866,10 @@ def _make_srflip_candles_long(n=60, flip_offset=3, level=100.0):
 def _make_srflip_candles_short(n=60, flip_offset=3, level=100.0):
     """Build candle data satisfying SHORT SR_FLIP_RETEST conditions.
 
-    Layout (relative to the final candle, i.e. candle[-1]):
-    - Prior window lows[-50:-8]: set to `level` exactly, establishing prior_swing_low.
-    - Flip candle at -flip_offset: low = level - 1.0 (breaks prior swing low).
-    - Remaining recent candles (non-flip, in [-8:] window): low = level - 0.3.
+    Array slice positions (Python negative indexing, n=60):
+    - Prior window lows[-50:-8]: 42 candles; all set to `level`, establishing prior_swing_low.
+    - Flip candle at index n-flip_offset (i.e. lows[-flip_offset]): low = level - 1.0.
+    - Remaining candles in the 8-candle window lows[-8:] (non-flip): low = level - 0.3.
     - Current candle [-1]: close = level * 0.999 (0.1% below level — premium zone),
       open = level * 0.9985, high = level * 1.001, low = level * 0.998.
       → upper_wick = high - open ≈ 0.25, candle_body ≈ 0.05,
