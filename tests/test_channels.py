@@ -2414,16 +2414,53 @@ class TestPostDisplacementContinuation:
     # ── Displacement quality gates ────────────────────────────────────────
 
     def test_weak_displacement_body_blocked(self):
-        """Displacement candle body < 60% of range → hard reject (indecisive candle)."""
-        # Use a very small body (wicky candle) on the displacement bar
-        candles = {"5m": _make_pdc_candles_long(disp_body=0.3)}
-        # With disp_body=0.3 and default range (body + 0.4 wicks) the ratio < 0.6
-        sig = self._call_long(candles, _pdc_indicators_long(), {})
-        # If this doesn't fire due to body ratio, the logic works; but the
-        # geometry might still pass the body check depending on exact values.
-        # Alternatively, test the volume gate:
-        # The important invariant is that insufficient volume always blocks.
-        pass  # geometry-dependent; covered by volume gate test below
+        """Displacement candle body < 60% of range → hard reject (indecisive candle).
+
+        Construct a candle array where the displacement bar has a body of 0.2 units
+        but a range of 2.0 units (body ratio = 0.1 < _PDC_DISP_BODY_RATIO_MIN=0.6).
+        """
+        n = 30
+        avg_vol = 100.0
+        # Build base candle array
+        closes = np.ones(n) * 100.0
+        opens = closes.copy()
+        highs = closes + 0.3
+        lows = closes - 0.3
+        volumes = np.ones(n) * avg_vol
+
+        # d_abs for consol_count=2: n - 1 - (consol_count + 1) = 30 - 1 - 3 = 26
+        d_abs = n - 1 - 3
+        # Displacement candle: small body (0.2) but wide range (2.0) → body_ratio = 0.1
+        opens[d_abs] = 100.0
+        closes[d_abs] = 100.2    # body = 0.2
+        highs[d_abs] = 101.0     # range = 2.0 (high - low)
+        lows[d_abs] = 99.0
+        volumes[d_abs] = avg_vol * 3.0   # volume passes
+
+        # Consolidation candles (at -3, -2 relative to end)
+        for i in range(2):
+            c = d_abs + 1 + i
+            opens[c] = 100.1
+            closes[c] = 100.2
+            highs[c] = 100.3
+            lows[c] = 100.0
+            volumes[c] = avg_vol * 0.5
+
+        # Current candle breaks above consolidation high
+        closes[-1] = 100.5
+        highs[-1] = 100.6
+        lows[-1] = 100.2
+        opens[-1] = 100.3
+        volumes[-1] = avg_vol * 1.5
+
+        candles_data = {
+            "open": opens, "high": highs, "low": lows,
+            "close": closes, "volume": volumes,
+        }
+        sig = self._call_long({"5m": candles_data}, _pdc_indicators_long(), {})
+        assert sig is None, (
+            "Displacement body ratio 0.1 < 0.6 threshold must hard-block PDC."
+        )
 
     def test_insufficient_displacement_volume_blocked(self):
         """Displacement volume < 2.5× avg → hard reject (not institutional move)."""
@@ -2443,21 +2480,17 @@ class TestPostDisplacementContinuation:
 
     def test_price_inside_consolidation_blocked(self):
         """Current close still inside consolidation range → no re-acceleration → hard reject."""
-        # Build candles but then manually set current close below consol_high
         candles_data = _make_pdc_candles_long(consol_count=2, close_price=103.5)
-        # Force current close to be inside consolidation (consol_high ≈ 100.6 + body*0.3*0.3)
-        # We'll explicitly override the current close to be inside
+        # Determine the consolidation high from the generated candle array.
+        # With consol_count=2, consolidation candles are at indices [-3] and [-2].
+        consol_high = max(float(candles_data["high"][-3]), float(candles_data["high"][-2]))
+        # Force current close to be at the consolidation high (not yet broken out).
         closes = list(candles_data["close"])
-        highs = list(candles_data["high"])
-        lows = list(candles_data["low"])
-        # Set current close to same as consolidation high (not above)
-        # Consolidation high is at approximately the value set by _make_pdc_candles_long
-        # Force it to be inside by setting close = highs[-3] (an older candle high)
-        closes[-1] = float(highs[-3]) - 0.1   # definitely inside consolidation
+        closes[-1] = consol_high  # exactly at the ceiling, not above → no breakout
         candles_data_mod = dict(candles_data)
         candles_data_mod["close"] = closes
         sig = self._call_long({"5m": candles_data_mod}, _pdc_indicators_long(), {})
-        assert sig is None, "Price inside consolidation must hard-reject re-acceleration."
+        assert sig is None, "Price at/below consolidation high must hard-reject re-acceleration."
 
     # ── RSI layered gate ──────────────────────────────────────────────────
 

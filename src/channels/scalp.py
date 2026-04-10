@@ -102,7 +102,6 @@ _CLS_VALID_REGIMES: frozenset = frozenset({
 _CLS_SWEEP_WINDOW: int = 10
 # Sweep is "very recent" (strong recency bonus) when within this many candles.
 _CLS_SWEEP_RECENT: int = 5
-# CLS_SWEEP_RECENT: int = 5  (already defined above)
 # RSI hard/soft thresholds for the layered gate.
 _CLS_RSI_LONG_HARD_MAX: float = 80.0   # ≥ this → hard reject (overbought)
 _CLS_RSI_LONG_SOFT_MIN: float = 70.0   # ≥ this (< hard) → +6 soft penalty
