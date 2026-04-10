@@ -37,6 +37,25 @@ _HTF_EMA_REJECTION_PCT: float = float(os.getenv("HTF_EMA_REJECTION_PCT", "0.0015
 _WHALE_DELTA_MIN_RATIO: float = 2.0
 _WHALE_MIN_TICK_VOLUME_USD: float = 500_000.0
 _WHALE_OBI_MIN: float = 1.5
+# In fast/volatile regimes the order book can be temporarily thin or skewed by
+# market-maker spread widening.  When the OBI ratio is marginal — present but
+# below the full confirmation threshold — apply a soft penalty rather than
+# hard-rejecting.  Below this floor the check is still a hard reject.
+_WHALE_OBI_SOFT_MIN: float = 1.2
+# Regimes where OBI imbalance is treated as a soft confidence contributor (via
+# penalty) rather than a hard gate when the ratio falls in the marginal band
+# [_WHALE_OBI_SOFT_MIN, _WHALE_OBI_MIN).  Outside these regimes any ratio below
+# _WHALE_OBI_MIN remains a hard reject.
+_WHALE_FAST_REGIMES: frozenset = frozenset({
+    "VOLATILE", "VOLATILE_UNSUITABLE", "BREAKOUT_EXPANSION",
+})
+# RSI thresholds for the layered soft/hard gate.  Hard limits reject extreme
+# exhaustion that invalidates the momentum thesis; soft limits penalise
+# borderline readings that may still resolve in the signal's favour.
+_WHALE_RSI_LONG_HARD_MAX: float = 82.0   # ≥ this → hard reject (overbought)
+_WHALE_RSI_LONG_SOFT_MIN: float = 72.0   # ≥ this (< hard) → +5 soft penalty
+_WHALE_RSI_SHORT_HARD_MIN: float = 18.0  # ≤ this → hard reject (oversold)
+_WHALE_RSI_SHORT_SOFT_MAX: float = 28.0  # ≤ this (> hard) → +5 soft penalty
 
 # Regime-adaptive ADX floor for the standard scalp path.  In RANGING/QUIET
 # markets ADX hovers at 15-20 and blocks most liquidity-sweep setups.
@@ -723,7 +742,7 @@ class ScalpChannel(BaseChannel):
 
     # ------------------------------------------------------------------
     # WHALE_MOMENTUM path (absorbed from former TapeChannel)
-    # Large volume spike + OBI imbalance
+    # Whale alert or delta spike + dominant tick flow + OBI confirmation
     # ------------------------------------------------------------------
 
     def _evaluate_whale_momentum(
@@ -771,18 +790,47 @@ class ScalpChannel(BaseChannel):
         else:
             return None
 
-        # RSI extreme gate: don't chase overbought LONGs or fade oversold SHORTs
-        if not check_rsi_regime(indicators.get("1m", {}).get("rsi_last"), direction=direction.value, regime=regime):
-            return None
+        # RSI gate — layered soft/hard replacing the prior binary check_rsi_regime
+        # call.  Whale buying/selling routinely pushes RSI into borderline zones
+        # without exhausting the move; hard-blocking at those levels loses valid
+        # setups.  Architecture is consistent with VOLUME_SURGE_BREAKOUT and
+        # BREAKDOWN_SHORT:
+        #   LONG : hard block ≥ 82 (extreme overbought); soft +5 for 72–81
+        #   SHORT: hard block ≤ 18 (extreme oversold);   soft +5 for 19–28
+        rsi_val_1m = indicators.get("1m", {}).get("rsi_last")
+        rsi_penalty = 0.0
+        if rsi_val_1m is not None:
+            if direction == Direction.LONG:
+                if rsi_val_1m >= _WHALE_RSI_LONG_HARD_MAX:
+                    return None  # Hard reject: extreme overbought invalidates momentum thesis
+                if _WHALE_RSI_LONG_SOFT_MIN <= rsi_val_1m < _WHALE_RSI_LONG_HARD_MAX:
+                    rsi_penalty = 5.0  # Borderline: penalise but still allow
+            else:
+                if rsi_val_1m <= _WHALE_RSI_SHORT_HARD_MIN:
+                    return None  # Hard reject: extreme oversold invalidates momentum thesis
+                if _WHALE_RSI_SHORT_HARD_MIN < rsi_val_1m <= _WHALE_RSI_SHORT_SOFT_MAX:
+                    rsi_penalty = 5.0  # Borderline: penalise but still allow
 
-        # Order book imbalance check — confirms the dominant side matches the
-        # whale direction.  When order_book is unavailable (e.g. depth circuit
-        # breaker open) the check is skipped rather than hard-rejecting: the
-        # primary whale signals (alert, delta spike, tick flow) are sufficient
-        # to identify the setup; OBI is a confirmation layer.  Missing OBI is
-        # flagged via obi_confirmed=False so the scanner can apply a penalty.
+        # Order book imbalance — confirms the dominant side matches the whale
+        # direction.
+        #
+        # Three-tier behaviour:
+        #   1. order_book is None (circuit breaker open): skip OBI entirely;
+        #      flag obi_confirmed=False so a +10 soft penalty is applied.
+        #   2. order_book present, ratio ≥ _WHALE_OBI_MIN (1.5×): full
+        #      confirmation, no OBI penalty.
+        #   3. order_book present, ratio in [_WHALE_OBI_SOFT_MIN, _WHALE_OBI_MIN)
+        #      AND regime is a fast/volatile regime: marginal OBI treated as a
+        #      soft contributor (+8 penalty) rather than hard rejection.  In fast
+        #      regimes depth books are routinely thin due to market-maker spread
+        #      widening; tick flow and whale alert carry more weight.
+        #   4. order_book present, ratio < _WHALE_OBI_MIN in a calm regime, or
+        #      ratio < _WHALE_OBI_SOFT_MIN in any regime: hard reject — the order
+        #      book actively contradicts the assumed whale direction.
         order_book = smc_data.get("order_book")
         obi_confirmed = False
+        obi_penalty = 0.0
+        regime_upper = regime.upper() if regime else ""
         if order_book is not None:
             bids = order_book.get("bids", [])
             asks = order_book.get("asks", [])
@@ -793,9 +841,13 @@ class ScalpChannel(BaseChannel):
             imbalance_ratio = (
                 bid_depth / ask_depth if direction == Direction.LONG else ask_depth / bid_depth
             )
-            if imbalance_ratio < _WHALE_OBI_MIN:
+            if imbalance_ratio >= _WHALE_OBI_MIN:
+                obi_confirmed = True
+            elif regime_upper in _WHALE_FAST_REGIMES and imbalance_ratio >= _WHALE_OBI_SOFT_MIN:
+                # Marginal OBI in a fast regime: soft penalty, not hard reject
+                obi_penalty = 8.0
+            else:
                 return None
-            obi_confirmed = True
 
         atr_val = indicators.get("1m", {}).get("atr_last", close * 0.002)
         sl_dist = max(close * self.config.sl_pct_range[0] / 100, atr_val)
@@ -824,11 +876,19 @@ class ScalpChannel(BaseChannel):
             sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
             sig.trailing_stage = 0
             sig.partial_close_pct = 0.0
-            if not obi_confirmed:
+            # Accumulate soft penalties then assign once.
+            _penalty = getattr(sig, "soft_penalty_total", 0.0)
+            if order_book is None:
                 # No order book available — signal is valid on tick-flow alone
-                # but carries lower certainty; apply a soft confidence penalty
-                # so only very strong whale setups pass the min_confidence gate.
-                sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + 10.0
+                # but carries lower certainty.
+                _penalty += 10.0
+            if obi_penalty > 0:
+                # Marginal OBI in fast regime: weaker confirmation layer.
+                _penalty += obi_penalty
+            if rsi_penalty > 0:
+                # Borderline RSI: signal may still be valid but with lower certainty.
+                _penalty += rsi_penalty
+            sig.soft_penalty_total = _penalty
         return sig
 
     # ------------------------------------------------------------------
