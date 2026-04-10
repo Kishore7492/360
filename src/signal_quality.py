@@ -1051,10 +1051,15 @@ class ScoringInput:
     # Pattern + MTF
     chart_patterns: Optional[List] = None   # List of PatternResult objects
     mtf_score: float = 0.0                  # 0.0–1.0 from MTF gate
+    # Order-flow (used for family-aware thesis scoring)
+    cvd_divergence: Optional[str] = None    # "BULLISH", "BEARISH", or None
+    oi_trend: str = "NEUTRAL"               # "RISING", "FALLING", or "NEUTRAL"
+    liq_vol_usd: float = 0.0               # Recent USD liquidation volume
+    funding_rate: Optional[float] = None    # Latest funding rate (decimal)
 
 
 class SignalScoringEngine:
-    """Scores a candidate signal across six dimensions.
+    """Scores a candidate signal across six dimensions plus a family thesis layer.
 
     Produces a deterministic, auditable 0–100 score composed of:
     - SMC confluence (max 25 pts)
@@ -1063,6 +1068,11 @@ class SignalScoringEngine:
     - Indicator confluence (max 20 pts)
     - Candlestick patterns (max 10 pts)
     - MTF confirmation (max 10 pts)
+    - Family thesis adjustment (variable; see _apply_family_thesis_adjustment)
+
+    The first six dimensions form the shared base model.  The family thesis
+    layer adds a family-aware modifier for setups whose primary signal thesis
+    is not well captured by the globally uniform base dimensions.
     """
 
     # Setup classes that strongly align with each regime
@@ -1077,10 +1087,41 @@ class SignalScoringEngine:
                      "VOLUME_SURGE_BREAKOUT", "BREAKDOWN_SHORT"],
     }
 
+    # ── Family classification sets ─────────────────────────────────────────
+    # Reversal / liquidation / funding-extreme: primary thesis is an
+    # order-flow event (OI squeeze, mass liquidations, contrarian funding,
+    # CVD reversal).  EMA is typically counter-trend at entry.
+    _FAMILY_REVERSAL_LIQUIDATION: frozenset = frozenset({
+        "LIQUIDATION_REVERSAL",
+        "LIQUIDITY_SWEEP_REVERSAL",
+        "FUNDING_EXTREME_SIGNAL",
+        "EXHAUSTION_FADE",
+    })
+
+    # Order-flow / divergence: thesis is CVD or OI divergence confirming
+    # a directional move before price follows.  WHALE_MOMENTUM is intentionally
+    # excluded: its primary thesis (large-participant impulse) differs from
+    # divergence confirmation and its OI behaviour is not universally "FALLING"
+    # — falling OI is not an obviously positive signal for a momentum burst.
+    # WHALE_MOMENTUM stays on shared base scoring until code-level evidence
+    # supports a justified standalone family treatment.
+    _FAMILY_ORDER_FLOW_DIVERGENCE: frozenset = frozenset({
+        "DIVERGENCE_CONTINUATION",
+    })
+
+    # Trend / continuation, breakout / measured-move, quiet-specialist, and
+    # WHALE_MOMENTUM are well-served by the shared base scoring; no thesis
+    # adjustment is applied to them.
+
+    # Liquidation cap used for scaling liq-volume bonus (in USD)
+    _LIQ_VOL_THESIS_CAP_USD: float = 5_000_000.0
+
     def score(self, inp: ScoringInput) -> Dict[str, float]:
         """Return a dict with per-dimension scores and a 'total' key.
 
-        All scores are in [0, max_for_dimension].
+        All scores are in [0, max_for_dimension].  The 'thesis_adj' key
+        carries the family-aware thesis adjustment (may be negative, zero,
+        or positive).  'total' is capped at 100.
         """
         smc = self._score_smc(inp)
         regime = self._score_regime(inp)
@@ -1088,7 +1129,8 @@ class SignalScoringEngine:
         indicators = self._score_indicators(inp)
         patterns = self._score_patterns(inp)
         mtf = self._score_mtf(inp)
-        total = smc + regime + volume + indicators + patterns + mtf
+        thesis_adj = self._apply_family_thesis_adjustment(inp)
+        total = smc + regime + volume + indicators + patterns + mtf + thesis_adj
         return {
             "smc": round(smc, 2),
             "regime": round(regime, 2),
@@ -1096,6 +1138,7 @@ class SignalScoringEngine:
             "indicators": round(indicators, 2),
             "patterns": round(patterns, 2),
             "mtf": round(mtf, 2),
+            "thesis_adj": round(thesis_adj, 2),
             "total": round(min(100.0, total), 2),
         }
 
@@ -1212,3 +1255,98 @@ class SignalScoringEngine:
     def _score_mtf(self, inp: ScoringInput) -> float:
         """MTF confirmation score, max 10 pts."""
         return round(inp.mtf_score * 10.0, 2)
+
+    # ------------------------------------------------------------------
+    def _apply_family_thesis_adjustment(self, inp: ScoringInput) -> float:
+        """Return a family-specific thesis adjustment to add to the base total.
+
+        The six shared dimensions score every setup uniformly.  This method
+        adds a small family-aware modifier for setup families whose primary
+        signal thesis is not adequately captured by the global dimensions:
+
+        **Reversal / Liquidation / Funding-Extreme family**
+        (LIQUIDATION_REVERSAL, LIQUIDITY_SWEEP_REVERSAL, FUNDING_EXTREME_SIGNAL,
+        EXHAUSTION_FADE):
+        - EMA counter-trend correction: reversal entries naturally have EMA
+          misaligned (price hasn't crossed yet), so the uniform 1/6-pt EMA
+          score creates a structural deficit.  When EMA is counter-trend for
+          a reversal setup, +3 pts are added to partially neutralise this bias.
+        - Order-flow thesis bonus (max +5 pts): falling OI + liquidation
+          volume, CVD divergence aligned with direction, and contrarian
+          funding rate are the primary thesis signals for this family.
+
+        **Order-Flow / Divergence family** (DIVERGENCE_CONTINUATION):
+        - CVD/OI divergence bonus (max +6 pts): confirmed divergence in the
+          trade direction earns a positive thesis bonus; contra divergence
+          applies a small penalty.
+
+        **All other families** (trend/continuation, breakout/measured-move,
+        quiet-specialist, WHALE_MOMENTUM): 0 adjustment — the shared base
+        scoring is appropriate for these paths.
+
+        Returns
+        -------
+        float
+            Adjustment in roughly [-2, +8].  Added to base total before the
+            100-pt cap is applied in score().
+        """
+        setup = inp.setup_class
+
+        if setup in self._FAMILY_REVERSAL_LIQUIDATION:
+            adj = 0.0
+
+            # EMA counter-trend correction: add +3 when EMA is naturally
+            # misaligned for a reversal entry (does not double-count when
+            # EMA happens to be aligned for the reversal direction).
+            if inp.ema_fast is not None and inp.ema_slow is not None:
+                ema_counter_trend = (
+                    (inp.direction == "LONG" and inp.ema_fast < inp.ema_slow) or
+                    (inp.direction == "SHORT" and inp.ema_fast > inp.ema_slow)
+                )
+                if ema_counter_trend:
+                    adj += 3.0
+
+            # Order-flow thesis bonus (max +5 pts combined)
+            of_bonus = 0.0
+            if inp.oi_trend == "FALLING":
+                of_bonus += 2.0
+                if inp.liq_vol_usd > 0:
+                    liq_bonus = min(inp.liq_vol_usd / self._LIQ_VOL_THESIS_CAP_USD, 1.0) * 1.5
+                    of_bonus += liq_bonus
+            if inp.cvd_divergence is not None:
+                cvd_aligned = (
+                    (inp.direction == "LONG" and inp.cvd_divergence == "BULLISH") or
+                    (inp.direction == "SHORT" and inp.cvd_divergence == "BEARISH")
+                )
+                # Reversal setups have an independent order-flow thesis (OI, liq,
+                # funding); CVD is supplementary.  Penalty for contra CVD is
+                # intentionally smaller (-1) than in the order-flow family (-2)
+                # where CVD is the primary thesis signal.
+                of_bonus += 2.0 if cvd_aligned else -1.0
+            if inp.funding_rate is not None and abs(inp.funding_rate) >= 0.01:
+                # Contrarian extreme funding confirms reversal thesis
+                contrarian = (
+                    (inp.direction == "LONG" and inp.funding_rate < -0.01) or
+                    (inp.direction == "SHORT" and inp.funding_rate > 0.01)
+                )
+                if contrarian:
+                    of_bonus += 1.5
+            adj += max(0.0, min(5.0, of_bonus))
+            return min(8.0, adj)
+
+        if setup in self._FAMILY_ORDER_FLOW_DIVERGENCE:
+            # CVD/OI divergence thesis bonus (max +6 pts)
+            of_bonus = 0.0
+            if inp.cvd_divergence is not None:
+                cvd_aligned = (
+                    (inp.direction == "LONG" and inp.cvd_divergence == "BULLISH") or
+                    (inp.direction == "SHORT" and inp.cvd_divergence == "BEARISH")
+                )
+                of_bonus += 4.0 if cvd_aligned else -2.0
+            if inp.oi_trend == "FALLING":
+                of_bonus += 2.0
+            return max(-2.0, min(6.0, of_bonus))
+
+        # Trend / continuation, breakout / measured-move, quiet-specialist:
+        # shared base scoring is appropriate; no family thesis adjustment.
+        return 0.0
