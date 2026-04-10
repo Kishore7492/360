@@ -158,6 +158,256 @@ class TestScalpChannel:
 
 
 # ---------------------------------------------------------------------------
+# WHALE_MOMENTUM refinement tests (RSI layering + OBI regime-awareness)
+# ---------------------------------------------------------------------------
+
+def _whale_base_smc(order_book=None):
+    """Minimal smc_data that satisfies WHALE_MOMENTUM entry conditions."""
+    ticks = [
+        {"price": 100.0, "qty": 15000, "isBuyerMaker": False},  # buy: $1.5M
+        {"price": 100.0, "qty": 5000, "isBuyerMaker": True},    # sell: $0.5M (3× ratio)
+    ]
+    smc: dict = {
+        "whale_alert": {"amount_usd": 1_500_000},
+        "volume_delta_spike": True,
+        "recent_ticks": ticks,
+    }
+    if order_book is not None:
+        smc["order_book"] = order_book
+    return smc
+
+
+def _strong_obi():
+    """Order book with 5:1 bid imbalance — fully satisfies OBI gate."""
+    return {
+        "bids": [[100.0, 500.0]] * 10,  # bid depth: $500K × 10
+        "asks": [[100.1, 100.0]] * 10,  # ask depth: $100K × 10  → 5:1 imbalance
+    }
+
+
+def _marginal_obi():
+    """Order book with ~1.3:1 bid imbalance — marginal (below 1.5× threshold)."""
+    return {
+        "bids": [[100.0, 130.0]] * 10,  # bid depth: $130K × 10 = $1.3M
+        "asks": [[100.1, 100.0]] * 10,  # ask depth: $100K × 10 = $1.0M → 1.3:1
+    }
+
+
+def _weak_obi():
+    """Order book with ~1.1:1 bid imbalance — below soft floor (1.2×)."""
+    return {
+        "bids": [[100.0, 110.0]] * 10,  # bid depth: $110K × 10 = $1.1M
+        "asks": [[100.1, 100.0]] * 10,  # ask depth: $100K × 10 = $1.0M → 1.1:1
+    }
+
+
+class TestWhaleMomentumRsiRefinements:
+    """RSI layered soft/hard gate for WHALE_MOMENTUM (PR-4 refinement)."""
+
+    def _call(self, rsi_val, direction_ticks=None, regime=""):
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        if direction_ticks is None:
+            # Default: strong buy flow → LONG
+            ticks = [
+                {"price": 100.0, "qty": 15000, "isBuyerMaker": False},
+                {"price": 100.0, "qty": 5000, "isBuyerMaker": True},
+            ]
+        else:
+            ticks = direction_ticks
+        indicators = {"1m": _make_indicators(rsi_val=rsi_val)}
+        smc_data = {
+            "whale_alert": {"amount_usd": 1_500_000},
+            "volume_delta_spike": True,
+            "recent_ticks": ticks,
+            "order_book": _strong_obi(),
+        }
+        return ch._evaluate_whale_momentum("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime=regime)
+
+    # ── LONG RSI gates ────────────────────────────────────────────────────
+
+    def test_rsi_65_long_accepted_no_penalty(self):
+        """RSI = 65 (optimal zone) for LONG — accepted with no RSI penalty."""
+        sig = self._call(rsi_val=65.0)
+        assert sig is not None
+        assert sig.soft_penalty_total == 0.0
+
+    def test_rsi_72_long_accepted_with_soft_penalty(self):
+        """RSI = 72 (borderline zone 72–81) for LONG — accepted with +5 penalty."""
+        sig = self._call(rsi_val=72.0)
+        assert sig is not None, "RSI 72 should be accepted for LONG (borderline, not hard-blocked)."
+        assert sig.soft_penalty_total >= 5.0
+
+    def test_rsi_81_long_accepted_with_soft_penalty(self):
+        """RSI = 81 (near hard limit 82) for LONG — accepted with +5 penalty."""
+        sig = self._call(rsi_val=81.0)
+        assert sig is not None, "RSI 81 should be accepted for LONG (below hard limit of 82)."
+        assert sig.soft_penalty_total >= 5.0
+
+    def test_rsi_82_long_hard_rejected(self):
+        """RSI = 82 (at hard limit) for LONG — must be hard-rejected."""
+        sig = self._call(rsi_val=82.0)
+        assert sig is None, "RSI ≥ 82 must be hard-rejected for LONG direction."
+
+    def test_rsi_90_long_hard_rejected(self):
+        """RSI = 90 (extreme overbought) for LONG — must be hard-rejected."""
+        sig = self._call(rsi_val=90.0)
+        assert sig is None, "RSI 90 (extreme overbought) must be hard-rejected."
+
+    # ── SHORT RSI gates ───────────────────────────────────────────────────
+
+    def _short_ticks(self):
+        """Strong sell tick flow → SHORT direction."""
+        return [
+            {"price": 100.0, "qty": 5000, "isBuyerMaker": False},   # buy: $0.5M
+            {"price": 100.0, "qty": 15000, "isBuyerMaker": True},   # sell: $1.5M (3×)
+        ]
+
+    def _short_obi(self):
+        """Order book with 5:1 ask imbalance — satisfies OBI gate for SHORT."""
+        return {
+            "bids": [[100.0, 100.0]] * 10,   # bid depth: $100K × 10
+            "asks": [[100.1, 500.0]] * 10,   # ask depth: $500K × 10 → 5:1 imbalance
+        }
+
+    def _call_short(self, rsi_val, regime=""):
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        indicators = {"1m": _make_indicators(rsi_val=rsi_val)}
+        smc_data = {
+            "whale_alert": {"amount_usd": 1_500_000},
+            "volume_delta_spike": True,
+            "recent_ticks": self._short_ticks(),
+            "order_book": self._short_obi(),
+        }
+        return ch._evaluate_whale_momentum("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime=regime)
+
+    def test_rsi_35_short_accepted_no_penalty(self):
+        """RSI = 35 (optimal zone) for SHORT — accepted with no RSI penalty."""
+        sig = self._call_short(rsi_val=35.0)
+        assert sig is not None
+        assert sig.soft_penalty_total == 0.0
+
+    def test_rsi_28_short_accepted_with_soft_penalty(self):
+        """RSI = 28 (borderline zone 19–28) for SHORT — accepted with +5 penalty."""
+        sig = self._call_short(rsi_val=28.0)
+        assert sig is not None, "RSI 28 should be accepted for SHORT (borderline, not hard-blocked)."
+        assert sig.soft_penalty_total >= 5.0
+
+    def test_rsi_19_short_accepted_with_soft_penalty(self):
+        """RSI = 19 (near hard limit 18) for SHORT — accepted with +5 penalty."""
+        sig = self._call_short(rsi_val=19.0)
+        assert sig is not None, "RSI 19 should be accepted for SHORT (above hard limit of 18)."
+        assert sig.soft_penalty_total >= 5.0
+
+    def test_rsi_18_short_hard_rejected(self):
+        """RSI = 18 (at hard limit) for SHORT — must be hard-rejected."""
+        sig = self._call_short(rsi_val=18.0)
+        assert sig is None, "RSI ≤ 18 must be hard-rejected for SHORT direction."
+
+    def test_rsi_5_short_hard_rejected(self):
+        """RSI = 5 (extreme oversold) for SHORT — must be hard-rejected."""
+        sig = self._call_short(rsi_val=5.0)
+        assert sig is None, "RSI 5 (extreme oversold) must be hard-rejected."
+
+    # ── RSI = None passes through ─────────────────────────────────────────
+
+    def test_rsi_none_no_penalty(self):
+        """Missing RSI (None) must not block the signal and must not apply RSI penalty."""
+        sig = self._call(rsi_val=None)
+        assert sig is not None, "Missing RSI must not block WHALE_MOMENTUM."
+        assert sig.soft_penalty_total == 0.0
+
+
+class TestWhaleMomentumObiRefinements:
+    """Regime-aware OBI gating for WHALE_MOMENTUM (PR-4 refinement)."""
+
+    def _call(self, order_book, regime=""):
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        indicators = {"1m": _make_indicators(rsi_val=55.0)}
+        smc_data = _whale_base_smc(order_book=order_book)
+        return ch._evaluate_whale_momentum("BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime=regime)
+
+    # ── Strong OBI always passes ──────────────────────────────────────────
+
+    def test_strong_obi_passes_in_any_regime(self):
+        """OBI ≥ 1.5× (strong imbalance) passes with no OBI penalty in any regime."""
+        sig = self._call(_strong_obi(), regime="RANGING")
+        assert sig is not None
+        assert sig.soft_penalty_total == 0.0
+
+    # ── Marginal OBI in fast vs calm regime ──────────────────────────────
+
+    def test_marginal_obi_accepted_in_volatile_regime(self):
+        """OBI ~1.3× (marginal) in VOLATILE regime → accepted with soft penalty."""
+        sig = self._call(_marginal_obi(), regime="VOLATILE")
+        assert sig is not None, "Marginal OBI in VOLATILE regime should be accepted (soft penalty)."
+        assert sig.soft_penalty_total >= 8.0, "Marginal OBI in VOLATILE must carry ≥8.0 soft penalty."
+
+    def test_marginal_obi_accepted_in_breakout_expansion_regime(self):
+        """OBI ~1.3× (marginal) in BREAKOUT_EXPANSION regime → accepted with soft penalty."""
+        sig = self._call(_marginal_obi(), regime="BREAKOUT_EXPANSION")
+        assert sig is not None, "Marginal OBI in BREAKOUT_EXPANSION should be accepted (soft penalty)."
+        assert sig.soft_penalty_total >= 8.0
+
+    def test_marginal_obi_hard_rejected_in_calm_regime(self):
+        """OBI ~1.3× (marginal) in RANGING regime → hard rejected."""
+        sig = self._call(_marginal_obi(), regime="RANGING")
+        assert sig is None, "Marginal OBI in RANGING regime must be hard-rejected."
+
+    def test_marginal_obi_hard_rejected_in_trending_regime(self):
+        """OBI ~1.3× (marginal) in TRENDING_UP regime → hard rejected (not a fast regime)."""
+        sig = self._call(_marginal_obi(), regime="TRENDING_UP")
+        assert sig is None, "Marginal OBI in TRENDING_UP must be hard-rejected (not a _WHALE_FAST_REGIME)."
+
+    # ── Below soft floor always rejects ──────────────────────────────────
+
+    def test_weak_obi_hard_rejected_in_volatile_regime(self):
+        """OBI ~1.1× (below soft floor 1.2×) in VOLATILE regime → still hard-rejected."""
+        sig = self._call(_weak_obi(), regime="VOLATILE")
+        assert sig is None, "OBI below soft floor (1.2×) must be hard-rejected even in VOLATILE."
+
+    # ── Missing order book ────────────────────────────────────────────────
+
+    def test_no_order_book_accepted_with_penalty(self):
+        """Missing order book (None) → signal accepted with +10 soft penalty."""
+        sig = self._call(order_book=None, regime="")
+        assert sig is not None
+        assert sig.soft_penalty_total >= 10.0
+
+    # ── Penalty stacking ─────────────────────────────────────────────────
+
+    def test_marginal_obi_and_borderline_rsi_stack_penalties(self):
+        """Marginal OBI (+8) and borderline RSI (+5) stack to ≥13 total penalty."""
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        indicators = {"1m": _make_indicators(rsi_val=75.0)}  # borderline RSI
+        smc_data = _whale_base_smc(order_book=_marginal_obi())
+        sig = ch._evaluate_whale_momentum(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="VOLATILE",
+        )
+        assert sig is not None, "Stacked penalties must still produce a signal."
+        assert sig.soft_penalty_total >= 13.0, (
+            f"Expected soft_penalty_total ≥ 13.0 (OBI 8 + RSI 5), got {sig.soft_penalty_total}"
+        )
+
+    def test_strong_obi_with_borderline_rsi_only_rsi_penalty(self):
+        """Strong OBI + borderline RSI → only the RSI penalty (+5) is applied."""
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        indicators = {"1m": _make_indicators(rsi_val=75.0)}  # borderline RSI
+        smc_data = _whale_base_smc(order_book=_strong_obi())
+        sig = ch._evaluate_whale_momentum(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000,
+        )
+        assert sig is not None
+        assert sig.soft_penalty_total == 5.0, (
+            f"Only RSI penalty expected (5.0), got {sig.soft_penalty_total}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # PR_10 refactor verification tests
 # ---------------------------------------------------------------------------
 
