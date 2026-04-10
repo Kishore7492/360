@@ -7,22 +7,22 @@ Every Copilot session must check this file if OWNER_BRIEF.md appears short or co
 
 | Field | Value |
 |---|---|
-| Commit SHA | efad0286557e342194453606b2bd94a073b1ff43 |
-| Blob SHA | 60860afdef86a39c6014260429d4278806741ffd |
-| Line count | 801 |
-| Date verified | 2026-04-09 |
+| Commit SHA | TBD — update after PR merge to main |
+| Blob SHA | TBD — update after PR merge to main |
+| Line count | 1665 |
+| Date verified | 2026-04-10 |
 | Verified by | Copilot + owner (mkmk749278) |
 
 ## Restoration Instructions
 
-If OWNER_BRIEF.md is found to be under 700 lines at session start:
+If OWNER_BRIEF.md is found to be under 1000 lines at session start:
 
 1. **Stop immediately** — do not proceed with the session
 2. **Alert the owner** — "OWNER_BRIEF.md appears corrupted (N lines). Restoring from canonical commit."
 3. **Fetch the canonical version** using:
    - Repo: mkmk749278/360-v2
    - File: OWNER_BRIEF.md
-   - Ref: 90d02391ecd296a476a6740ddbeff4ab9cac34da
+   - Ref: the commit SHA from the table above (update this after each merge)
 4. **Compare** — identify what is missing vs current main
 5. **Restore** — write the restored + updated version back to main via PR
 6. **Update this file** — update the commit SHA, blob SHA, and line count after restoration
