@@ -878,7 +878,7 @@ class ScalpChannel(BaseChannel):
             sig.partial_close_pct = 0.0
             # Accumulate soft penalties then assign once.
             _penalty = getattr(sig, "soft_penalty_total", 0.0)
-            if not obi_confirmed:
+            if order_book is None:
                 # No order book available — signal is valid on tick-flow alone
                 # but carries lower certainty.
                 _penalty += 10.0

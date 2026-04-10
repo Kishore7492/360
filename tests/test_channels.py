@@ -383,7 +383,7 @@ class TestWhaleMomentumObiRefinements:
     # ── Penalty stacking ─────────────────────────────────────────────────
 
     def test_marginal_obi_and_borderline_rsi_stack_penalties(self):
-        """Marginal OBI (+8) and borderline RSI (+5) stack to ≥13 total penalty."""
+        """Marginal OBI (+8) and borderline RSI (+5) stack to exactly 13 — no missing-OB penalty."""
         ch = ScalpChannel()
         candles = {"1m": _make_candles(20)}
         indicators = {"1m": _make_indicators(rsi_val=75.0)}  # borderline RSI
@@ -392,8 +392,26 @@ class TestWhaleMomentumObiRefinements:
             "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="VOLATILE",
         )
         assert sig is not None, "Stacked penalties must still produce a signal."
-        assert sig.soft_penalty_total >= 13.0, (
-            f"Expected soft_penalty_total ≥ 13.0 (OBI 8 + RSI 5), got {sig.soft_penalty_total}"
+        # Order book IS present (marginal), so the +10 missing-OB penalty must NOT apply.
+        # Expected: OBI penalty 8 + RSI penalty 5 = 13 (not 10+8+5=23).
+        assert sig.soft_penalty_total == 13.0, (
+            f"Expected soft_penalty_total == 13.0 (OBI 8 + RSI 5, no missing-OB penalty), "
+            f"got {sig.soft_penalty_total}"
+        )
+
+    def test_marginal_obi_does_not_inherit_missing_ob_penalty(self):
+        """Marginal OBI in a fast regime must only apply the +8 OBI penalty, not the +10 missing-OB penalty."""
+        ch = ScalpChannel()
+        candles = {"1m": _make_candles(20)}
+        indicators = {"1m": _make_indicators(rsi_val=55.0)}  # optimal RSI, no RSI penalty
+        smc_data = _whale_base_smc(order_book=_marginal_obi())
+        sig = ch._evaluate_whale_momentum(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="VOLATILE",
+        )
+        assert sig is not None
+        # Only OBI marginal penalty should apply — order book is present
+        assert sig.soft_penalty_total == 8.0, (
+            f"Only marginal OBI penalty (8.0) expected, got {sig.soft_penalty_total}"
         )
 
     def test_strong_obi_with_borderline_rsi_only_rsi_penalty(self):
