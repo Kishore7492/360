@@ -34,6 +34,7 @@ class SetupClass(str, Enum):
     FUNDING_EXTREME_SIGNAL = "FUNDING_EXTREME_SIGNAL"
     QUIET_COMPRESSION_BREAK = "QUIET_COMPRESSION_BREAK"
     DIVERGENCE_CONTINUATION = "DIVERGENCE_CONTINUATION"
+    CONTINUATION_LIQUIDITY_SWEEP = "CONTINUATION_LIQUIDITY_SWEEP"
 
 
 class MarketState(str, Enum):
@@ -70,6 +71,7 @@ CHANNEL_SETUP_COMPATIBILITY: Dict[str, set[SetupClass]] = {
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.QUIET_COMPRESSION_BREAK,
         SetupClass.DIVERGENCE_CONTINUATION,
+        SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
     },
     "360_SCALP_FVG": {
         SetupClass.TREND_PULLBACK_CONTINUATION,
@@ -135,6 +137,7 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.DIVERGENCE_CONTINUATION,
         SetupClass.LIQUIDATION_REVERSAL,
+        SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
     },
     MarketState.WEAK_TREND: {
         SetupClass.TREND_PULLBACK_CONTINUATION,
@@ -150,6 +153,7 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.DIVERGENCE_CONTINUATION,
         SetupClass.LIQUIDATION_REVERSAL,
+        SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
     },
     MarketState.CLEAN_RANGE: {
         SetupClass.RANGE_REJECTION,
@@ -184,6 +188,7 @@ REGIME_SETUP_COMPATIBILITY: Dict[MarketState, set[SetupClass]] = {
         SetupClass.OPENING_RANGE_BREAKOUT,
         SetupClass.FUNDING_EXTREME_SIGNAL,
         SetupClass.LIQUIDATION_REVERSAL,
+        SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
     },
     MarketState.VOLATILE_UNSUITABLE: {
         # Whale-driven and liquidity-sweep signals are valid precisely in
@@ -580,6 +585,7 @@ def classify_setup(
         "WHALE_MOMENTUM",
         "DIVERGENCE_CONTINUATION",
         "SR_FLIP_RETEST",
+        "CONTINUATION_LIQUIDITY_SWEEP",
     })
     _sig_setup_class = getattr(signal, "setup_class", "")
     if _sig_setup_class in _SELF_CLASSIFYING:
@@ -680,6 +686,12 @@ def execution_quality_check(
         anchor = _safe_float(primary.get("ema9_last"), ema_anchor)
         trigger_confirmed = abs(_safe_float(primary.get("momentum_last"))) >= 0.3
         note = "Whale flow active; keep trailing stops tight and do not chase extensions."
+    elif setup == SetupClass.CONTINUATION_LIQUIDITY_SWEEP:
+        anchor = sweep_level or signal.entry
+        trigger_confirmed = bool(smc_data.get("sweeps")) and (
+            signal.entry > anchor if signal.direction == Direction.LONG else signal.entry < anchor
+        )
+        note = "Enter on continuation after sweep reclaim; structural invalidation is a return below swept level."
     else:
         anchor = ema_anchor
         trigger_confirmed = (
@@ -700,6 +712,7 @@ def execution_quality_check(
         SetupClass.WHALE_MOMENTUM: 1.2,
         SetupClass.VOLUME_SURGE_BREAKOUT: 1.5,
         SetupClass.BREAKDOWN_SHORT: 1.5,
+        SetupClass.CONTINUATION_LIQUIDITY_SWEEP: 1.3,
     }.get(setup, 1.5)
     passed = trigger_confirmed and extension_ratio <= max_extension
     zone_low = min(anchor, signal.entry)
@@ -1078,9 +1091,11 @@ class SignalScoringEngine:
     # Setup classes that strongly align with each regime
     _REGIME_SETUP_AFFINITY: Dict[str, List[str]] = {
         "TRENDING_UP": ["LIQUIDITY_SWEEP_REVERSAL", "BREAKOUT_INITIAL", "BREAKOUT_RETEST",
-                        "THREE_WHITE_SOLDIERS", "WHALE_MOMENTUM", "VOLUME_SURGE_BREAKOUT"],
+                        "THREE_WHITE_SOLDIERS", "WHALE_MOMENTUM", "VOLUME_SURGE_BREAKOUT",
+                        "CONTINUATION_LIQUIDITY_SWEEP"],
         "TRENDING_DOWN": ["LIQUIDITY_SWEEP_REVERSAL", "BREAKOUT_INITIAL", "BREAKOUT_RETEST",
-                          "THREE_BLACK_CROWS", "WHALE_MOMENTUM", "BREAKDOWN_SHORT"],
+                          "THREE_BLACK_CROWS", "WHALE_MOMENTUM", "BREAKDOWN_SHORT",
+                          "CONTINUATION_LIQUIDITY_SWEEP"],
         "RANGING": ["RANGE_FADE", "SWING_STANDARD"],
         "QUIET": ["RANGE_FADE"],
         "VOLATILE": ["WHALE_MOMENTUM", "LIQUIDITY_SWEEP_REVERSAL",
@@ -1107,6 +1122,14 @@ class SignalScoringEngine:
     # supports a justified standalone family treatment.
     _FAMILY_ORDER_FLOW_DIVERGENCE: frozenset = frozenset({
         "DIVERGENCE_CONTINUATION",
+    })
+
+    # Sweep-confirmed continuation: primary thesis is a trending move where a
+    # local pullback sweeps short-term liquidity (stop hunt) and price then
+    # re-accelerates in the trend direction.  CVD aligning with the trend
+    # direction and rising OI both confirm the continuation thesis.
+    _FAMILY_SWEEP_CONTINUATION: frozenset = frozenset({
+        "CONTINUATION_LIQUIDITY_SWEEP",
     })
 
     # Trend / continuation, breakout / measured-move, quiet-specialist, and
@@ -1280,6 +1303,15 @@ class SignalScoringEngine:
           trade direction earns a positive thesis bonus; contra divergence
           applies a small penalty.
 
+        **Sweep-Continuation family** (CONTINUATION_LIQUIDITY_SWEEP):
+        - CVD trend-alignment bonus (+2 pts): CVD aligned with the trend
+          direction confirms the continuation; not contra divergence like
+          reversal setups.
+        - OI rising bonus (+2 pts): rising OI during a sweep-driven pullback
+          signals accumulation, confirming the continuation thesis.
+        - Total: up to +4 pts, uncapped at zero (contra signals not penalised
+          because the sweep itself carries the structural thesis).
+
         **All other families** (trend/continuation, breakout/measured-move,
         quiet-specialist, WHALE_MOMENTUM): 0 adjustment — the shared base
         scoring is appropriate for these paths.
@@ -1346,6 +1378,22 @@ class SignalScoringEngine:
             if inp.oi_trend == "FALLING":
                 of_bonus += 2.0
             return max(-2.0, min(6.0, of_bonus))
+
+        if setup in self._FAMILY_SWEEP_CONTINUATION:
+            # Continuation thesis: CVD aligned with trend + rising OI signal
+            # accumulation during the sweep pullback (max +4 pts, floor 0).
+            cont_bonus = 0.0
+            if inp.cvd_divergence is not None:
+                cvd_aligned = (
+                    (inp.direction == "LONG" and inp.cvd_divergence == "BULLISH") or
+                    (inp.direction == "SHORT" and inp.cvd_divergence == "BEARISH")
+                )
+                if cvd_aligned:
+                    cont_bonus += 2.0
+            if inp.oi_trend == "RISING":
+                # Rising OI with directional momentum confirms trend accumulation
+                cont_bonus += 2.0
+            return min(4.0, cont_bonus)
 
         # Trend / continuation, breakout / measured-move, quiet-specialist:
         # shared base scoring is appropriate; no family thesis adjustment.

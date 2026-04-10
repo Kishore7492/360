@@ -1,5 +1,6 @@
 """Tests for channel strategies – evaluate() logic."""
 
+import pytest
 import numpy as np
 
 from src.channels.scalp import ScalpChannel
@@ -1524,3 +1525,568 @@ class TestSrFlipRetestRefinements:
         assert sig.soft_penalty_total >= 12.0, (
             f"Expected ≥12.0 accumulated penalty, got {sig.soft_penalty_total}"
         )
+
+
+# ---------------------------------------------------------------------------
+# CONTINUATION_LIQUIDITY_SWEEP path tests (roadmap step 5)
+# ---------------------------------------------------------------------------
+
+def _make_cls_candles_long(n=40, sweep_level=99.0, close_price=100.5, sweep_offset=3):
+    """Build candle data satisfying LONG CLS conditions.
+
+    - EMA alignment: EMA9 > EMA21 (bullish trend) — set via indicators, not candles.
+    - sweep_level: the swept low (stop hunt below prior support).
+    - close_price: current price, must be > sweep_level (reclaimed).
+    - sweep_offset: how many candles ago the sweep happened (1=just, 10=max window).
+    """
+    closes = np.ones(n) * close_price
+    highs  = closes + 0.5
+    lows   = closes - 0.2
+    opens  = closes - 0.1
+    volume = np.ones(n) * 1000.0
+    return {
+        "open":   opens,
+        "high":   highs,
+        "low":    lows,
+        "close":  closes,
+        "volume": volume,
+    }
+
+
+def _make_cls_candles_short(n=40, sweep_level=101.0, close_price=99.5, sweep_offset=3):
+    """Build candle data satisfying SHORT CLS conditions.
+
+    - EMA alignment: EMA9 < EMA21 (bearish trend) — set via indicators.
+    - sweep_level: the swept high (stop hunt above prior resistance).
+    - close_price: current price, must be < sweep_level (reclaimed).
+    """
+    closes = np.ones(n) * close_price
+    highs  = closes + 0.2
+    lows   = closes - 0.5
+    opens  = closes + 0.1
+    volume = np.ones(n) * 1000.0
+    return {
+        "open":   opens,
+        "high":   highs,
+        "low":    lows,
+        "close":  closes,
+        "volume": volume,
+    }
+
+
+def _cls_indicators_long(rsi_val=55.0, ema9=102.0, ema21=99.0, adx_val=25.0, mom=0.3):
+    """Indicators for LONG CLS: EMA9 > EMA21 (bullish), positive momentum."""
+    return {"5m": _make_indicators(adx_val=adx_val, ema9=ema9, ema21=ema21,
+                                   rsi_val=rsi_val, mom=mom)}
+
+
+def _cls_indicators_short(rsi_val=45.0, ema9=97.0, ema21=101.0, adx_val=25.0, mom=-0.3):
+    """Indicators for SHORT CLS: EMA9 < EMA21 (bearish), negative momentum."""
+    return {"5m": _make_indicators(adx_val=adx_val, ema9=ema9, ema21=ema21,
+                                   rsi_val=rsi_val, mom=mom)}
+
+
+def _cls_sweep_long(sweep_level=99.0, sweep_index=-3):
+    """Create a LONG-direction sweep (dip-and-recover, stop hunt on longs' stops)."""
+    return LiquiditySweep(
+        index=sweep_index, direction=Direction.LONG,
+        sweep_level=sweep_level, close_price=sweep_level + 0.1,
+        wick_high=sweep_level + 1.0, wick_low=sweep_level - 0.5,
+    )
+
+
+def _cls_sweep_short(sweep_level=101.0, sweep_index=-3):
+    """Create a SHORT-direction sweep (spike-and-fall, stop hunt on shorts' stops)."""
+    return LiquiditySweep(
+        index=sweep_index, direction=Direction.SHORT,
+        sweep_level=sweep_level, close_price=sweep_level - 0.1,
+        wick_high=sweep_level + 0.5, wick_low=sweep_level - 1.0,
+    )
+
+
+class TestContinuationLiquiditySweep:
+    """Tests for the CONTINUATION_LIQUIDITY_SWEEP path (roadmap step 5)."""
+
+    def _call_long(self, candles, indicators, smc_data, regime="TRENDING_UP"):
+        ch = ScalpChannel()
+        return ch._evaluate_continuation_liquidity_sweep(
+            "BTCUSDT", candles, indicators, smc_data,
+            spread_pct=0.01, volume_24h_usd=10_000_000, regime=regime,
+        )
+
+    def _call_short(self, candles, indicators, smc_data, regime="TRENDING_DOWN"):
+        ch = ScalpChannel()
+        return ch._evaluate_continuation_liquidity_sweep(
+            "BTCUSDT", candles, indicators, smc_data,
+            spread_pct=0.01, volume_24h_usd=10_000_000, regime=regime,
+        )
+
+    # ── Happy path ────────────────────────────────────────────────────────
+
+    def test_long_signal_fires_on_valid_setup(self):
+        """Valid LONG sweep + reclaim in uptrend → CONTINUATION_LIQUIDITY_SWEEP signal."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        assert sig.setup_class == "CONTINUATION_LIQUIDITY_SWEEP"
+        assert sig.direction == Direction.LONG
+
+    def test_short_signal_fires_on_valid_setup(self):
+        """Valid SHORT sweep + reclaim in downtrend → CONTINUATION_LIQUIDITY_SWEEP signal."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(candles, _cls_indicators_short(), smc_data)
+        assert sig is not None
+        assert sig.setup_class == "CONTINUATION_LIQUIDITY_SWEEP"
+        assert sig.direction == Direction.SHORT
+
+    # ── Regime gate ───────────────────────────────────────────────────────
+
+    def test_volatile_regime_hard_blocked(self):
+        """VOLATILE regime must hard-block CLS — chaotic orderflow invalidates continuation."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data, regime="VOLATILE")
+        assert sig is None, "VOLATILE regime must be hard-blocked for CLS."
+
+    def test_volatile_unsuitable_hard_blocked(self):
+        """VOLATILE_UNSUITABLE must also hard-block CLS."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(
+            candles, _cls_indicators_long(), smc_data, regime="VOLATILE_UNSUITABLE"
+        )
+        assert sig is None, "VOLATILE_UNSUITABLE must be hard-blocked for CLS."
+
+    def test_ranging_regime_allowed(self):
+        """RANGING regime is allowed — EMA alignment gate provides directional filter."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data, regime="RANGING")
+        assert sig is not None, "RANGING should be allowed when EMA alignment is bullish."
+
+    def test_trending_up_regime_allowed_for_long(self):
+        """TRENDING_UP + LONG EMA alignment → setup fires."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data, regime="TRENDING_UP")
+        assert sig is not None
+
+    def test_trending_down_blocks_long_setup(self):
+        """TRENDING_DOWN + LONG EMA alignment → regime/EMA mismatch → no signal."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        # EMA is bullish but regime is strongly downtrend — mismatch rejected
+        sig = self._call_long(
+            candles, _cls_indicators_long(), smc_data, regime="TRENDING_DOWN"
+        )
+        assert sig is None, "TRENDING_DOWN + LONG EMA should be rejected."
+
+    def test_trending_up_blocks_short_setup(self):
+        """TRENDING_UP + SHORT EMA alignment → regime/EMA mismatch → no signal."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(
+            candles, _cls_indicators_short(), smc_data, regime="TRENDING_UP"
+        )
+        assert sig is None, "TRENDING_UP + SHORT EMA should be rejected."
+
+    # ── EMA alignment gate ────────────────────────────────────────────────
+
+    def test_ema_not_aligned_long_blocked(self):
+        """EMA9 < EMA21 → direction is SHORT, so LONG sweep is ignored."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        # EMA9 < EMA21 → direction=SHORT; sweep is LONG, no match → None
+        ind = _cls_indicators_long(ema9=97.0, ema21=101.0)
+        sig = self._call_long(candles, ind, smc_data, regime="RANGING")
+        assert sig is None, "EMA misalignment should block signal."
+
+    def test_ema_converged_blocked(self):
+        """EMA9 == EMA21 → no trend direction → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(ema9=100.0, ema21=100.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is None, "Converged EMAs should be hard-rejected."
+
+    # ── No sweep / wrong direction sweep ─────────────────────────────────
+
+    def test_no_sweep_blocked(self):
+        """No sweeps in smc_data → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        smc_data = {"sweeps": []}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is None, "Missing sweep must hard-block CLS."
+
+    def test_wrong_direction_sweep_blocked(self):
+        """Sweep direction opposite to EMA trend → no matching sweep → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        # SHORT sweep in a LONG trend — not a valid CLS setup
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is None, "Opposite-direction sweep should not match LONG trend."
+
+    # ── Sweep recency window ───────────────────────────────────────────────
+
+    def test_sweep_at_minus1_accepted(self):
+        """Sweep 1 candle ago (index=-1): within window, very recent — no recency penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        fvgs = [{"gap_high": 102.0, "gap_low": 101.5}]
+        smc_data = {"sweeps": [sweep], "fvg": fvgs}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None, "Sweep at index=-1 should be accepted."
+        # Very recent sweep + FVG present: only RSI and FVG penalties = 0
+        assert sig.soft_penalty_total == 0.0, (
+            f"Very recent sweep + FVG should have zero penalty, got {sig.soft_penalty_total}"
+        )
+
+    def test_sweep_at_minus5_accepted_no_recency_penalty(self):
+        """Sweep 5 candles ago: within recent threshold, no recency penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-5)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None, "Sweep at index=-5 should be accepted."
+
+    def test_sweep_at_minus6_gets_recency_penalty(self):
+        """Sweep 6 candles ago: accepted but with +5 recency soft penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-6)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None, "Sweep at index=-6 should still be accepted."
+        assert sig.soft_penalty_total >= 5.0, (
+            f"Expected ≥5.0 recency penalty, got {sig.soft_penalty_total}"
+        )
+
+    def test_sweep_at_minus10_accepted(self):
+        """Sweep at boundary (index=-10): just inside window, recency penalty applied."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-10)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None, "Sweep at index=-10 should be accepted (boundary)."
+        assert sig.soft_penalty_total >= 5.0
+
+    def test_sweep_at_minus11_rejected(self):
+        """Sweep 11 candles ago: outside window → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-11)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is None, "Sweep at index=-11 must be hard-rejected (outside window)."
+
+    # ── Reclaim gate ──────────────────────────────────────────────────────
+
+    def test_long_price_below_sweep_level_blocked(self):
+        """Price at/below sweep level → reclaim not confirmed → hard reject."""
+        sweep_level = 99.0
+        # close_price at or below sweep_level
+        candles = {"5m": _make_cls_candles_long(close_price=98.9)}
+        sweep = _cls_sweep_long(sweep_level=sweep_level, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is None, "Price below sweep level must hard-reject LONG CLS."
+
+    def test_long_price_equal_to_sweep_level_blocked(self):
+        """Price exactly at sweep level → not yet reclaimed → hard reject."""
+        sweep_level = 99.0
+        candles = {"5m": _make_cls_candles_long(close_price=sweep_level)}
+        sweep = _cls_sweep_long(sweep_level=sweep_level, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is None, "Price == sweep level should still be hard-rejected."
+
+    def test_short_price_above_sweep_level_blocked(self):
+        """Price at/above sweep level → reclaim not confirmed → hard reject."""
+        sweep_level = 101.0
+        candles = {"5m": _make_cls_candles_short(close_price=101.1)}
+        sweep = _cls_sweep_short(sweep_level=sweep_level, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(candles, _cls_indicators_short(), smc_data)
+        assert sig is None, "Price above sweep level must hard-reject SHORT CLS."
+
+    # ── Momentum gate ─────────────────────────────────────────────────────
+
+    def test_zero_momentum_long_blocked(self):
+        """Zero or negative momentum in LONG setup → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(mom=0.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is None, "Zero momentum must block LONG CLS."
+
+    def test_negative_momentum_long_blocked(self):
+        """Negative momentum in LONG setup → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(mom=-0.2)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is None, "Negative momentum must block LONG CLS."
+
+    def test_positive_momentum_short_blocked(self):
+        """Positive momentum in SHORT setup → hard reject."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_short(mom=0.2)
+        sig = self._call_short(candles, ind, smc_data)
+        assert sig is None, "Positive momentum must block SHORT CLS."
+
+    # ── RSI layered gate ──────────────────────────────────────────────────
+
+    def test_rsi_long_hard_max_blocked(self):
+        """RSI ≥ 80 for LONG → hard reject (overbought, continuation exhausted)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(rsi_val=80.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is None, "RSI=80.0 must hard-block LONG CLS."
+
+    def test_rsi_long_above_hard_max_blocked(self):
+        """RSI > 80 for LONG → hard reject."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(rsi_val=85.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is None, "RSI=85 must hard-block LONG CLS."
+
+    def test_rsi_long_soft_min_penalised(self):
+        """RSI in [70, 80) for LONG → +6 soft penalty, signal still emits."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(rsi_val=73.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None, "RSI=73 should not hard-block LONG CLS."
+        assert sig.soft_penalty_total >= 6.0, (
+            f"Expected ≥6.0 RSI penalty, got {sig.soft_penalty_total}"
+        )
+
+    def test_rsi_long_below_soft_min_no_penalty(self):
+        """RSI < 70 for LONG → no RSI soft penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(rsi_val=60.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None, "RSI=60 should produce a LONG CLS signal."
+        # With very recent sweep (index=-1) and no FVG, only fvg_ob_penalty=8 applies
+        assert sig.soft_penalty_total < 14.0, "RSI=60 should not add RSI penalty."
+
+    def test_rsi_short_hard_min_blocked(self):
+        """RSI ≤ 20 for SHORT → hard reject (oversold, continuation exhausted)."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_short(rsi_val=20.0)
+        sig = self._call_short(candles, ind, smc_data)
+        assert sig is None, "RSI=20.0 must hard-block SHORT CLS."
+
+    def test_rsi_short_soft_max_penalised(self):
+        """RSI in (20, 30] for SHORT → +6 soft penalty, signal still emits."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-1)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_short(rsi_val=27.0)
+        sig = self._call_short(candles, ind, smc_data)
+        assert sig is not None, "RSI=27 should not hard-block SHORT CLS."
+        assert sig.soft_penalty_total >= 6.0, (
+            f"Expected ≥6.0 RSI penalty, got {sig.soft_penalty_total}"
+        )
+
+    # ── FVG / orderblock soft gate ────────────────────────────────────────
+
+    def test_no_fvg_no_ob_applies_penalty(self):
+        """Missing FVG and orderblock → +8 soft penalty (not hard reject)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        smc_data = {"sweeps": [sweep]}  # no fvg or orderblocks keys
+        ind = _cls_indicators_long(rsi_val=55.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None, "Missing FVG/OB must not hard-reject CLS."
+        assert sig.soft_penalty_total >= 8.0, (
+            f"Expected ≥8.0 FVG/OB penalty, got {sig.soft_penalty_total}"
+        )
+
+    def test_fvg_present_removes_fvg_penalty(self):
+        """FVG present → no FVG/OB penalty (and FVG used as TP1 target)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        fvgs = [{"gap_high": 102.0, "gap_low": 101.5}]
+        smc_data = {"sweeps": [sweep], "fvg": fvgs}
+        ind = _cls_indicators_long(rsi_val=55.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None
+        # FVG present → no FVG penalty; only recency penalty if any
+        assert sig.soft_penalty_total < 8.0, (
+            f"FVG present should remove FVG penalty, got {sig.soft_penalty_total}"
+        )
+
+    def test_orderblock_present_removes_fvg_penalty(self):
+        """Orderblock present (no FVG) → no FVG/OB penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-1)
+        smc_data = {"sweeps": [sweep], "orderblocks": [{"level": 99.5}]}
+        ind = _cls_indicators_long(rsi_val=55.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None
+        assert sig.soft_penalty_total < 8.0
+
+    # ── Cumulative soft penalty stacking ─────────────────────────────────
+
+    def test_all_soft_penalties_stack(self):
+        """Borderline RSI + no FVG/OB + older sweep → penalties accumulate.
+
+        RSI=73 (+6) + no FVG/OB (+8) + sweep_index=-8 (+5) = 19.0 total.
+        """
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-8)
+        smc_data = {"sweeps": [sweep]}
+        ind = _cls_indicators_long(rsi_val=73.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None, "Stacked penalties should not hard-block signal."
+        assert sig.soft_penalty_total == pytest.approx(19.0), (
+            f"Expected 19.0 total penalty (6+8+5), got {sig.soft_penalty_total}"
+        )
+
+    def test_clean_setup_zero_penalty(self):
+        """RSI=55 + FVG present + very recent sweep → zero soft penalty."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-2)
+        fvgs = [{"gap_high": 102.0, "gap_low": 101.5}]
+        smc_data = {"sweeps": [sweep], "fvg": fvgs}
+        ind = _cls_indicators_long(rsi_val=55.0)
+        sig = self._call_long(candles, ind, smc_data)
+        assert sig is not None
+        assert sig.soft_penalty_total == 0.0, (
+            f"Clean setup should have zero penalty, got {sig.soft_penalty_total}"
+        )
+
+    # ── SL/TP geometry ────────────────────────────────────────────────────
+
+    def test_long_sl_below_entry(self):
+        """Stop loss must be strictly below entry (LONG direction)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        assert sig.stop_loss < sig.entry
+
+    def test_short_sl_above_entry(self):
+        """Stop loss must be strictly above entry (SHORT direction)."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(candles, _cls_indicators_short(), smc_data)
+        assert sig is not None
+        assert sig.stop_loss > sig.entry
+
+    def test_long_sl_anchored_to_sweep_level(self):
+        """SL for LONG must be placed below the swept level (structural invalidation)."""
+        sweep_level = 99.0
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=sweep_level, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        # SL must be strictly below the swept level
+        assert sig.stop_loss < sweep_level, (
+            f"SL {sig.stop_loss} must be below sweep_level {sweep_level}"
+        )
+
+    def test_short_sl_anchored_to_sweep_level(self):
+        """SL for SHORT must be placed above the swept level."""
+        sweep_level = 101.0
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=sweep_level, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(candles, _cls_indicators_short(), smc_data)
+        assert sig is not None
+        assert sig.stop_loss > sweep_level, (
+            f"SL {sig.stop_loss} must be above sweep_level {sweep_level}"
+        )
+
+    def test_tp1_above_entry_on_long(self):
+        """TP1 must be strictly above entry price (LONG)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        assert sig.tp1 > sig.entry
+
+    def test_tp1_below_entry_on_short(self):
+        """TP1 must be strictly below entry price (SHORT)."""
+        candles = {"5m": _make_cls_candles_short(close_price=99.5)}
+        sweep = _cls_sweep_short(sweep_level=101.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_short(candles, _cls_indicators_short(), smc_data)
+        assert sig is not None
+        assert sig.tp1 < sig.entry
+
+    def test_tp1_uses_fvg_when_available(self):
+        """TP1 should use the nearest FVG midpoint when available."""
+        sweep_level = 99.0
+        close_price = 100.5
+        fvg_mid = 102.5
+        candles = {"5m": _make_cls_candles_long(close_price=close_price)}
+        sweep = _cls_sweep_long(sweep_level=sweep_level, sweep_index=-2)
+        fvgs = [{"gap_high": 103.0, "gap_low": 102.0}]
+        smc_data = {"sweeps": [sweep], "fvg": fvgs}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        # FVG midpoint = (103.0 + 102.0) / 2 = 102.5
+        assert sig.tp1 == pytest.approx(fvg_mid, abs=1e-6)
+
+    def test_tp2_greater_than_tp1_on_long(self):
+        """TP2 must be strictly greater than TP1 (LONG direction)."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        assert sig.tp2 > sig.tp1
+
+    def test_setup_class_registration(self):
+        """Signal has setup_class == 'CONTINUATION_LIQUIDITY_SWEEP'."""
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        smc_data = {"sweeps": [sweep]}
+        sig = self._call_long(candles, _cls_indicators_long(), smc_data)
+        assert sig is not None
+        assert sig.setup_class == "CONTINUATION_LIQUIDITY_SWEEP"
+
+    def test_registered_in_evaluate(self):
+        """evaluate() returns at least one CLS signal when conditions are met."""
+        ch = ScalpChannel()
+        candles = {"5m": _make_cls_candles_long(close_price=100.5)}
+        sweep = _cls_sweep_long(sweep_level=99.0, sweep_index=-3)
+        fvgs = [{"gap_high": 102.0, "gap_low": 101.5}]
+        smc_data = {"sweeps": [sweep], "fvg": fvgs}
+        ind = {"5m": _make_indicators(adx_val=25, ema9=102, ema21=99, mom=0.3, rsi_val=55)}
+        sigs = ch.evaluate(
+            "BTCUSDT", candles, ind, smc_data,
+            spread_pct=0.01, volume_24h_usd=10_000_000, regime="TRENDING_UP"
+        )
+        cls_sigs = [s for s in sigs if s.setup_class == "CONTINUATION_LIQUIDITY_SWEEP"]
+        assert len(cls_sigs) >= 1, "evaluate() must return a CLS signal when conditions are met."
