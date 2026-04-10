@@ -135,12 +135,37 @@ class TestSignalNewFields:
 
 class TestScalpChannelConstants:
     def test_scalp_channel_names_in_router(self):
-        expected = {"360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP"}
+        # All eight scalp-family channels must be present so that fast-path
+        # policies (stale gate, latency warnings) apply consistently.
+        expected = {
+            "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+            "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+            "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
+        }
         assert expected == set(_SCALP_CHANNEL_NAMES)
 
     def test_scanner_scalp_channels_consistent(self):
         from src.scanner import _SCALP_CHANNELS as scanner_set
         assert set(scanner_set) == set(_SCALP_CHANNEL_NAMES)
+
+    def test_all_scalp_family_channels_in_scanner_set(self):
+        """Every scalp-family channel must appear in the scanner _SCALP_CHANNELS set."""
+        from src.scanner import _SCALP_CHANNELS
+        for ch in (
+            "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+            "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+            "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
+        ):
+            assert ch in _SCALP_CHANNELS, f"{ch} missing from _SCALP_CHANNELS"
+
+    def test_all_scalp_family_channels_in_router_set(self):
+        """Every scalp-family channel must appear in the router _SCALP_CHANNEL_NAMES set."""
+        for ch in (
+            "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+            "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+            "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
+        ):
+            assert ch in _SCALP_CHANNEL_NAMES, f"{ch} missing from _SCALP_CHANNEL_NAMES"
 
 
 # ---------------------------------------------------------------------------
@@ -183,10 +208,14 @@ class TestStaleSignalGateTimeBased:
         assert sig.signal_id not in router.active_signals
 
     @pytest.mark.asyncio
-    async def test_non_scalp_signal_not_suppressed_by_scalp_threshold(self, monkeypatch):
-        """A SCALP_DIVERGENCE signal 200 s old uses the generous 3600 s threshold and is NOT suppressed."""
+    async def test_scalp_divergence_suppressed_by_scalp_threshold(self, monkeypatch):
+        """A SCALP_DIVERGENCE signal 200 s old uses the tight 120 s scalp threshold and IS suppressed.
+
+        All eight scalp-family channels share the same 120 s stale threshold so
+        that signals from any scalp channel are treated consistently.
+        """
         sent = []
-        queue, router = _make_router(sent, monkeypatch, channel="360_SCALP_DIVERGENCE")
+        queue, router = _make_router(sent, monkeypatch)
         sig = Signal(
             channel="360_SCALP_DIVERGENCE",
             symbol="ETHUSDT",
@@ -198,11 +227,11 @@ class TestStaleSignalGateTimeBased:
             confidence=85.0,
             signal_id="TEST-ETH-DIV",
             timestamp=utcnow(),
-            detected_at=time.time() - 200.0,
+            detected_at=time.time() - 200.0,  # 200 s old > 120 s SCALP threshold
         )
         await queue.put(sig)
         await _run_router(router)
-        assert sig.signal_id in router.active_signals
+        assert sig.signal_id not in router.active_signals
 
 
 # ---------------------------------------------------------------------------
@@ -407,14 +436,12 @@ class TestScalpFastPath:
 
         # Verify module-level constant contains all scalp channels
         from src.scanner import _SCALP_CHANNELS
-        assert "360_SCALP" in _SCALP_CHANNELS
-        assert "360_SCALP_FVG" in _SCALP_CHANNELS
-        assert "360_SCALP_CVD" in _SCALP_CHANNELS
-        assert "360_SCALP_VWAP" in _SCALP_CHANNELS
-
-    def test_non_scalp_channels_not_in_scalp_set(self):
-        from src.scanner import _SCALP_CHANNELS
-        assert "360_SCALP_DIVERGENCE" not in _SCALP_CHANNELS
+        for ch in (
+            "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+            "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+            "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
+        ):
+            assert ch in _SCALP_CHANNELS, f"{ch} missing from _SCALP_CHANNELS"
 
     @pytest.mark.asyncio
     async def test_prepare_signal_sets_detected_at(self, monkeypatch):

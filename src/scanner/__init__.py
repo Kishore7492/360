@@ -169,10 +169,14 @@ _RANGING_RANGE_FADE_CONF_BOOST: float = 5.0
 _CHART_BULLISH_PATTERNS: frozenset = frozenset({"DOUBLE_BOTTOM", "ASCENDING_TRIANGLE"})
 _CHART_BEARISH_PATTERNS: frozenset = frozenset({"DOUBLE_TOP", "DESCENDING_TRIANGLE"})
 
-# SCALP channel names — used for fast-path logic (skip cross-exchange verification).
+# SCALP channel names — used for fast-path logic (correlated-exposure cap,
+# cross-exchange verification skip, and WATCHLIST short-circuit).  All eight
+# scalp-family channels are included so that these policies are applied
+# consistently across the full family.
 _SCALP_CHANNELS: frozenset = frozenset({
-    "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD",
-    "360_SCALP_VWAP",
+    "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+    "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+    "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
 })
 
 # Symbols permanently excluded from scanning — loaded from config to allow
