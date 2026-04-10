@@ -48,9 +48,12 @@ _FREE_HIGHLIGHT_MAX_PER_DAY: int = 4
 _FREE_HIGHLIGHT_MIN_TP: int = 2
 
 # SCALP channel names — used by the stale-signal gate and latency warnings.
+# All eight scalp-family channels are included so that the tight 120 s stale
+# threshold and latency warnings apply consistently across the full family.
 _SCALP_CHANNEL_NAMES: frozenset = frozenset({
-    "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD",
-    "360_SCALP_VWAP",
+    "360_SCALP", "360_SCALP_FVG", "360_SCALP_CVD", "360_SCALP_VWAP",
+    "360_SCALP_DIVERGENCE", "360_SCALP_SUPERTREND",
+    "360_SCALP_ICHIMOKU", "360_SCALP_ORDERBLOCK",
 })
 
 # Stale-signal gate: maximum seconds a signal may spend between detection and
