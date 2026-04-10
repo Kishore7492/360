@@ -88,6 +88,26 @@ _FAST_STRUCTURAL_REGIMES: frozenset = frozenset({
     "BREAKOUT_EXPANSION", "STRONG_TREND", "TRENDING_UP", "TRENDING_DOWN",
 })
 
+# CONTINUATION_LIQUIDITY_SWEEP path constants.
+# Regimes where the sweep-continuation setup is valid.  VOLATILE,
+# VOLATILE_UNSUITABLE, RANGING, and QUIET are all hard-blocked:
+# VOLATILE/VOLATILE_UNSUITABLE — chaotic orderflow invalidates continuation;
+# RANGING/QUIET — no directional trend to continue into.
+_CLS_VALID_REGIMES: frozenset = frozenset({
+    "TRENDING_UP", "TRENDING_DOWN", "STRONG_TREND", "WEAK_TREND",
+    "BREAKOUT_EXPANSION",
+})
+# Max candle offset (back from current) where a sweep is still considered
+# "recent enough" to anchor a continuation entry.
+_CLS_SWEEP_WINDOW: int = 10
+# Sweep is "very recent" (strong recency bonus) when within this many candles.
+_CLS_SWEEP_RECENT: int = 5
+# RSI hard/soft thresholds for the layered gate.
+_CLS_RSI_LONG_HARD_MAX: float = 80.0   # ≥ this → hard reject (overbought)
+_CLS_RSI_LONG_SOFT_MIN: float = 70.0   # ≥ this (< hard) → +6 soft penalty
+_CLS_RSI_SHORT_HARD_MIN: float = 20.0  # ≤ this → hard reject (oversold)
+_CLS_RSI_SHORT_SOFT_MAX: float = 30.0  # ≤ this (> hard) → +6 soft penalty
+
 
 class ScalpChannel(BaseChannel):
     def __init__(self) -> None:
@@ -180,6 +200,7 @@ class ScalpChannel(BaseChannel):
             self._evaluate_funding_extreme,
             self._evaluate_quiet_compression_break,
             self._evaluate_divergence_continuation,
+            self._evaluate_continuation_liquidity_sweep,
         ):
             sig = evaluator(symbol, candles, indicators, smc_data, spread_pct, volume_24h_usd, regime)
             if sig is not None:
@@ -2232,6 +2253,263 @@ class ScalpChannel(BaseChannel):
         sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
         sig.trailing_stage = 0
         sig.partial_close_pct = 0.0
+        return sig
+
+    # ------------------------------------------------------------------
+    # CONTINUATION_LIQUIDITY_SWEEP path (Phase 2, roadmap step 5)
+    # Trend-present sweep of local liquidity → continuation entry.
+    # ------------------------------------------------------------------
+
+    def _evaluate_continuation_liquidity_sweep(
+        self,
+        symbol: str,
+        candles: Dict[str, dict],
+        indicators: Dict[str, dict],
+        smc_data: dict,
+        spread_pct: float,
+        volume_24h_usd: float,
+        regime: str = "",
+    ) -> Optional[Signal]:
+        """CONTINUATION_LIQUIDITY_SWEEP: sweep-confirmed trend continuation.
+
+        Setup logic:
+        1. Trend is established via EMA9/EMA21 alignment (hard gate).
+        2. A recent local pullback swept short-term liquidity (stop hunt) in the
+           trend direction — e.g. a dip below prior lows in an uptrend that
+           quickly recovers.
+        3. Price has already reclaimed the swept level — distinguishing this from
+           an ongoing reversal or breakdown.
+        4. Momentum agrees with the trend direction (hard gate).
+        5. RSI is not at exhaustion extremes (layered hard/soft gate).
+
+        Structural SL is placed beyond the swept level (+ ATR buffer).  If price
+        returns below the sweep level the continuation thesis is invalidated.
+
+        Soft penalty contributors (do not hard-reject):
+        - RSI borderline (70-79 LONG / 21-30 SHORT): +6 pts
+        - No FVG or orderblock in target zone: +8 pts
+        - Sweep is older (6–10 candles back, not 1–5): +5 pts
+        """
+        # Hard block regimes where the continuation thesis does not apply:
+        # - VOLATILE/VOLATILE_UNSUITABLE: chaotic orderflow invalidates structure
+        # - RANGING/QUIET: no directional trend exists to continue
+        regime_upper = regime.upper() if regime else ""
+        if regime_upper not in _CLS_VALID_REGIMES:
+            return None
+
+        m5 = candles.get("5m")
+        if m5 is None or len(m5.get("close", [])) < 20:
+            return None
+
+        if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
+            return None
+
+        ind = indicators.get("5m", {})
+        ema9 = ind.get("ema9_last")
+        ema21 = ind.get("ema21_last")
+        if ema9 is None or ema21 is None:
+            return None
+
+        # Direction determined by EMA alignment — this is a trend-following path
+        if ema9 > ema21:
+            direction = Direction.LONG
+        elif ema9 < ema21:
+            direction = Direction.SHORT
+        else:
+            return None  # EMAs converged — no trend direction
+
+        # Cross-validate direction against strongly-stated directional regimes
+        if regime_upper == "TRENDING_DOWN" and direction == Direction.LONG:
+            return None  # EMA not aligned with the established downtrend
+        if regime_upper == "TRENDING_UP" and direction == Direction.SHORT:
+            return None  # EMA not aligned with the established uptrend
+
+        closes_raw = m5.get("close", [])
+        close = float(closes_raw[-1])
+        if close <= 0:
+            return None
+
+        # ADX gate: trend continuation requires meaningful trend strength
+        profile = smc_data.get("pair_profile")
+        thresholds = self._get_pair_adjusted_thresholds(profile)
+        adx_val = ind.get("adx_last")
+        if adx_val is not None and adx_val < thresholds["adx_min"]:
+            return None
+
+        # Sweep detection: must have a recent sweep in the trend continuation
+        # direction (i.e. swept the stops of participants against the trend,
+        # then recovered — confirming a liquidity grab rather than a break).
+        sweeps = smc_data.get("sweeps", [])
+        if not sweeps:
+            return None
+
+        trend_sweep = None
+        for sweep in sweeps:
+            if sweep.direction == direction:
+                trend_sweep = sweep
+                break
+        if trend_sweep is None:
+            return None
+
+        # Sweep recency gate: sweep must be within the last _CLS_SWEEP_WINDOW
+        # closed candles.  Staleer sweeps lose their structural relevance.
+        sweep_index = getattr(trend_sweep, "index", None)
+        if sweep_index is None or sweep_index < -_CLS_SWEEP_WINDOW:
+            return None
+
+        # Sweep level extraction
+        sweep_level: Optional[float] = None
+        for attr in ("level", "price", "sweep_level"):
+            v = getattr(trend_sweep, attr, None)
+            if v is not None:
+                sweep_level = float(v)
+                break
+        if sweep_level is None or sweep_level <= 0:
+            return None
+
+        # Reclaim confirmation: current price must already be beyond the swept
+        # level in the trend direction.  This is the defining gate that separates
+        # CLS from a still-in-progress LIQUIDITY_SWEEP_REVERSAL — the sweep must
+        # already be resolved before this path fires.
+        if direction == Direction.LONG and close <= sweep_level:
+            return None  # Price hasn't reclaimed above sweep level yet
+        if direction == Direction.SHORT and close >= sweep_level:
+            return None  # Price hasn't reclaimed below sweep level yet
+
+        # Momentum agreement: must confirm trend direction (hard gate)
+        mom = ind.get("momentum_last")
+        if mom is None:
+            return None
+        if direction == Direction.LONG and mom <= 0:
+            return None
+        if direction == Direction.SHORT and mom >= 0:
+            return None
+
+        # RSI layered gate: hard reject only at true exhaustion extremes;
+        # soft penalty in the borderline zone — same pattern as WHALE_MOMENTUM.
+        rsi_val = ind.get("rsi_last")
+        rsi_penalty = 0.0
+        if rsi_val is not None:
+            if direction == Direction.LONG:
+                if rsi_val >= _CLS_RSI_LONG_HARD_MAX:
+                    return None  # Hard reject: overbought — continuation exhausted
+                if rsi_val >= _CLS_RSI_LONG_SOFT_MIN:
+                    rsi_penalty = 6.0
+            else:
+                if rsi_val <= _CLS_RSI_SHORT_HARD_MIN:
+                    return None  # Hard reject: oversold — continuation exhausted
+                if rsi_val <= _CLS_RSI_SHORT_SOFT_MAX:
+                    rsi_penalty = 6.0
+
+        # FVG / orderblock soft quality gate: absence is penalised, not hard-rejected.
+        # In fast trending/expansion regimes, FVG detection can lag the actual
+        # structural move; the sweep reclaim is the primary confirmation.
+        fvgs = smc_data.get("fvg", [])
+        orderblocks = smc_data.get("orderblocks", [])
+        fvg_ob_penalty = 0.0 if (fvgs or orderblocks) else 8.0
+
+        # Sweep recency bonus: very recent sweeps (≤ _CLS_SWEEP_RECENT candles)
+        # are the cleanest setups.  Older sweeps (within window) get a penalty.
+        sweep_recency_penalty = 0.0 if sweep_index >= -_CLS_SWEEP_RECENT else 5.0
+
+        # ── SL: placed beyond the swept level (structural invalidation) ────
+        atr_val = ind.get("atr_last", close * 0.002)
+        atr_buffer = atr_val * 0.3
+        if direction == Direction.LONG:
+            sl = sweep_level - atr_buffer
+        else:
+            sl = sweep_level + atr_buffer
+
+        sl_dist = abs(close - sl)
+        min_sl_dist = atr_val * 0.5
+        if sl_dist < min_sl_dist:
+            sl_dist = min_sl_dist
+            sl = close - sl_dist if direction == Direction.LONG else close + sl_dist
+
+        if direction == Direction.LONG and sl >= close:
+            return None
+        if direction == Direction.SHORT and sl <= close:
+            return None
+
+        # ── TP targets: FVG → swing target → ATR fallback ──────────────────
+        m5_highs = m5.get("high", [])
+        m5_lows = m5.get("low", [])
+        tp1 = 0.0
+        tp2 = 0.0
+
+        # TP1: nearest FVG midpoint in the continuation direction
+        for fvg_zone in fvgs:
+            fvg_mid = None
+            if hasattr(fvg_zone, "gap_high") and hasattr(fvg_zone, "gap_low"):
+                fvg_mid = (float(fvg_zone.gap_high) + float(fvg_zone.gap_low)) / 2.0
+            elif isinstance(fvg_zone, dict):
+                gh = fvg_zone.get("gap_high", 0)
+                gl = fvg_zone.get("gap_low", 0)
+                if gh and gl:
+                    fvg_mid = (float(gh) + float(gl)) / 2.0
+            if fvg_mid is not None:
+                if direction == Direction.LONG and fvg_mid > close:
+                    tp1 = fvg_mid
+                    break
+                elif direction == Direction.SHORT and fvg_mid < close:
+                    tp1 = fvg_mid
+                    break
+
+        # TP2: 20-candle swing high (LONG) or swing low (SHORT)
+        if direction == Direction.LONG and len(m5_highs) >= 21:
+            tp2 = max(float(h) for h in m5_highs[-21:-1])
+            if tp2 <= close:
+                tp2 = 0.0
+        elif direction == Direction.SHORT and len(m5_lows) >= 21:
+            tp2 = min(float(lv) for lv in m5_lows[-21:-1])
+            if tp2 >= close:
+                tp2 = 0.0
+
+        # ATR-ratio fallback for any missing targets
+        if tp1 <= 0 or (direction == Direction.LONG and tp1 <= close) or (direction == Direction.SHORT and tp1 >= close):
+            tp1 = close + sl_dist * 1.5 if direction == Direction.LONG else close - sl_dist * 1.5
+        if tp2 <= 0 or (direction == Direction.LONG and tp2 <= tp1) or (direction == Direction.SHORT and tp2 >= tp1):
+            tp2 = close + sl_dist * 2.5 if direction == Direction.LONG else close - sl_dist * 2.5
+        tp3 = close + sl_dist * 4.0 if direction == Direction.LONG else close - sl_dist * 4.0
+
+        _regime_ctx = smc_data.get("regime_context")
+        sig = build_channel_signal(
+            config=self.config,
+            symbol=symbol,
+            direction=direction,
+            close=close,
+            sl=sl,
+            tp1=tp1,
+            tp2=tp2,
+            tp3=tp3,
+            sl_dist=sl_dist,
+            id_prefix="CLSWEEP",
+            atr_val=atr_val,
+            setup_class="CONTINUATION_LIQUIDITY_SWEEP",
+            regime=regime,
+            atr_percentile=_regime_ctx.atr_percentile if _regime_ctx else 50.0,
+            pair_tier=profile.tier if profile else "MIDCAP",
+        )
+        if sig is None:
+            return None
+
+        sig.stop_loss = round(sl, 8)
+        sig.tp1 = round(tp1, 8)
+        sig.tp2 = round(tp2, 8)
+        sig.tp3 = round(tp3, 8)
+        sig.original_tp1 = sig.tp1
+        sig.original_tp2 = sig.tp2
+        sig.original_tp3 = sig.tp3
+        sig.original_sl_distance = sl_dist
+        sig.trailing_atr_mult_effective = self.config.trailing_atr_mult
+        sig.trailing_stage = 0
+        sig.partial_close_pct = 0.0
+
+        # Accumulate soft penalties — deducted from confidence post-PR09 by scanner
+        total_penalty = rsi_penalty + fvg_ob_penalty + sweep_recency_penalty
+        if total_penalty > 0.0:
+            sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + total_penalty
+
         return sig
 
     # ------------------------------------------------------------------

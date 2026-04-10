@@ -33,6 +33,7 @@ SETUP_EMOJIS: Dict[str, str] = {
     "SUPERTREND_SIGNAL": "📈",
     "ICHIMOKU_SIGNAL": "◈",
     "VWAP_EXTENSION": "📏",
+    "CONTINUATION_LIQUIDITY_SWEEP": "🔁",
 }
 
 
