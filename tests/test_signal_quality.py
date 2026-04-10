@@ -1047,7 +1047,7 @@ class TestEndToEnd:
     def test_score_returns_all_dimensions(self, engine):
         inp = ScoringInput()
         result = engine.score(inp)
-        assert set(result.keys()) == {"smc", "regime", "volume", "indicators", "patterns", "mtf", "total"}
+        assert set(result.keys()) == {"smc", "regime", "volume", "indicators", "patterns", "mtf", "thesis_adj", "total"}
 
     def test_tier_a_plus(self, engine):
         """Verify a well-confirmed signal scores ≥ 80 (A+ tier)."""
@@ -1077,3 +1077,362 @@ class TestEndToEnd:
         )
         result = engine.score(inp)
         assert 50 <= result["total"] < 80
+
+
+class TestFamilyAwareConfidenceScoring:
+    """Regression tests verifying family-based thesis differentiation in PR09.
+
+    The core invariant: materially different setup families must NOT produce
+    the exact same final score from identical shared inputs.  Each family's
+    primary thesis should influence its score via _apply_family_thesis_adjustment.
+    """
+
+    @pytest.fixture
+    def engine(self) -> SignalScoringEngine:
+        return SignalScoringEngine()
+
+    # ── Shared base inputs used across most tests ──────────────────────
+    def _base_inputs(self, **override) -> ScoringInput:
+        """Return a neutral ScoringInput with identical shared dimensions."""
+        sweep = MagicMock()
+        sweep.index = -2
+        kwargs = dict(
+            sweeps=[sweep],
+            regime="VOLATILE",
+            atr_percentile=60.0,
+            volume_last_usd=1_500_000,
+            volume_avg_usd=1_000_000,
+            rsi_last=48.0,
+            mtf_score=0.5,
+            # EMA counter-trend (bearish) for a LONG trade — typical reversal entry
+            ema_fast=99.0,
+            ema_slow=101.0,
+            direction="LONG",
+        )
+        kwargs.update(override)
+        return ScoringInput(**kwargs)
+
+    # ── Thesis adjustment key present ─────────────────────────────────
+
+    def test_score_includes_thesis_adj_key(self, engine):
+        """score() must always return a 'thesis_adj' key."""
+        result = engine.score(ScoringInput())
+        assert "thesis_adj" in result
+
+    def test_thesis_adj_zero_for_non_family_setup(self, engine):
+        """Trend/continuation setup gets zero thesis adjustment."""
+        inp = self._base_inputs(setup_class="TREND_PULLBACK_CONTINUATION")
+        result = engine.score(inp)
+        assert result["thesis_adj"] == 0.0
+
+    def test_thesis_adj_zero_for_breakout_setup(self, engine):
+        """Breakout/measured-move setup gets zero thesis adjustment."""
+        inp = self._base_inputs(setup_class="BREAKOUT_RETEST")
+        result = engine.score(inp)
+        assert result["thesis_adj"] == 0.0
+
+    def test_thesis_adj_zero_for_quiet_specialist(self, engine):
+        """Quiet-specialist (range-fade) setup gets zero thesis adjustment."""
+        inp = self._base_inputs(setup_class="RANGE_FADE")
+        result = engine.score(inp)
+        assert result["thesis_adj"] == 0.0
+
+    # ── Reversal family: EMA counter-trend correction ──────────────────
+
+    def test_reversal_ema_counter_trend_correction_long(self, engine):
+        """LIQUIDATION_REVERSAL LONG with bearish EMA earns EMA correction bonus."""
+        inp_reversal = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            ema_fast=99.0, ema_slow=101.0,  # counter-trend for LONG
+        )
+        inp_trend = self._base_inputs(
+            setup_class="TREND_PULLBACK_CONTINUATION",
+            ema_fast=99.0, ema_slow=101.0,  # same mis-aligned EMA
+        )
+        r_reversal = engine.score(inp_reversal)
+        r_trend = engine.score(inp_trend)
+        # Reversal should score higher because it gets EMA correction
+        assert r_reversal["total"] > r_trend["total"]
+        assert r_reversal["thesis_adj"] > 0.0
+        assert r_trend["thesis_adj"] == 0.0
+
+    def test_reversal_ema_counter_trend_correction_short(self, engine):
+        """LIQUIDITY_SWEEP_REVERSAL SHORT with bullish EMA earns EMA correction bonus."""
+        inp = self._base_inputs(
+            setup_class="LIQUIDITY_SWEEP_REVERSAL",
+            direction="SHORT",
+            ema_fast=101.0, ema_slow=99.0,  # bullish EMA — counter-trend for SHORT
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] > 0.0
+
+    def test_reversal_no_ema_correction_when_aligned(self, engine):
+        """LIQUIDATION_REVERSAL with EMA already aligned gets no EMA correction."""
+        inp_aligned = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            ema_fast=101.0, ema_slow=99.0,  # aligned for LONG
+        )
+        inp_counter = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            ema_fast=99.0, ema_slow=101.0,  # counter-trend for LONG
+        )
+        r_aligned = engine.score(inp_aligned)
+        r_counter = engine.score(inp_counter)
+        # Counter-trend EMA earns correction; aligned EMA does not
+        assert r_counter["thesis_adj"] > r_aligned["thesis_adj"]
+
+    # ── Reversal family: order-flow thesis bonus ───────────────────────
+
+    def test_reversal_oi_falling_boosts_score(self, engine):
+        """LIQUIDATION_REVERSAL with falling OI scores higher than neutral OI."""
+        inp_squeeze = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            oi_trend="FALLING",
+            liq_vol_usd=500_000,
+        )
+        inp_neutral = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            oi_trend="NEUTRAL",
+            liq_vol_usd=0.0,
+        )
+        r_squeeze = engine.score(inp_squeeze)
+        r_neutral = engine.score(inp_neutral)
+        assert r_squeeze["total"] > r_neutral["total"]
+        assert r_squeeze["thesis_adj"] > r_neutral["thesis_adj"]
+
+    def test_reversal_cvd_aligned_boosts_score(self, engine):
+        """LIQUIDATION_REVERSAL LONG with BULLISH CVD earns thesis bonus."""
+        inp_cvd = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            cvd_divergence="BULLISH",
+        )
+        inp_none = self._base_inputs(
+            setup_class="LIQUIDATION_REVERSAL",
+            cvd_divergence=None,
+        )
+        r_cvd = engine.score(inp_cvd)
+        r_none = engine.score(inp_none)
+        assert r_cvd["total"] > r_none["total"]
+
+    def test_reversal_contrarian_funding_boosts_score(self, engine):
+        """FUNDING_EXTREME_SIGNAL LONG with extreme negative funding earns bonus."""
+        inp_funding = self._base_inputs(
+            setup_class="FUNDING_EXTREME_SIGNAL",
+            funding_rate=-0.02,  # extreme negative — contrarian for LONG
+        )
+        inp_none = self._base_inputs(
+            setup_class="FUNDING_EXTREME_SIGNAL",
+            funding_rate=None,
+        )
+        r_funding = engine.score(inp_funding)
+        r_none = engine.score(inp_none)
+        assert r_funding["total"] > r_none["total"]
+
+    def test_exhaustion_fade_is_in_reversal_family(self, engine):
+        """EXHAUSTION_FADE gets thesis adjustment like other reversal family members."""
+        inp = self._base_inputs(
+            setup_class="EXHAUSTION_FADE",
+            ema_fast=99.0, ema_slow=101.0,  # counter-trend for LONG
+            oi_trend="FALLING",
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] > 0.0
+
+    # ── Order-flow / divergence family ────────────────────────────────
+
+    def test_divergence_continuation_cvd_aligned_bonus(self, engine):
+        """DIVERGENCE_CONTINUATION LONG with BULLISH CVD earns thesis bonus."""
+        inp_cvd = self._base_inputs(
+            setup_class="DIVERGENCE_CONTINUATION",
+            cvd_divergence="BULLISH",
+        )
+        inp_none = self._base_inputs(
+            setup_class="DIVERGENCE_CONTINUATION",
+            cvd_divergence=None,
+        )
+        r_cvd = engine.score(inp_cvd)
+        r_none = engine.score(inp_none)
+        assert r_cvd["total"] > r_none["total"]
+        assert r_cvd["thesis_adj"] > 0.0
+
+    def test_divergence_continuation_oi_falling_bonus(self, engine):
+        """DIVERGENCE_CONTINUATION with falling OI earns thesis bonus."""
+        inp_oi = self._base_inputs(
+            setup_class="DIVERGENCE_CONTINUATION",
+            oi_trend="FALLING",
+        )
+        inp_neutral = self._base_inputs(
+            setup_class="DIVERGENCE_CONTINUATION",
+            oi_trend="NEUTRAL",
+        )
+        r_oi = engine.score(inp_oi)
+        r_neutral = engine.score(inp_neutral)
+        assert r_oi["total"] > r_neutral["total"]
+
+    def test_whale_momentum_is_in_order_flow_family(self, engine):
+        """WHALE_MOMENTUM gets order-flow thesis adjustment."""
+        inp_cvd = self._base_inputs(
+            setup_class="WHALE_MOMENTUM",
+            cvd_divergence="BULLISH",
+            oi_trend="FALLING",
+        )
+        inp_none = self._base_inputs(
+            setup_class="WHALE_MOMENTUM",
+            cvd_divergence=None,
+            oi_trend="NEUTRAL",
+        )
+        r_cvd = engine.score(inp_cvd)
+        r_none = engine.score(inp_none)
+        assert r_cvd["total"] > r_none["total"]
+        assert r_cvd["thesis_adj"] > r_none["thesis_adj"]
+
+    def test_divergence_cvd_contra_applies_small_penalty(self, engine):
+        """DIVERGENCE_CONTINUATION with contra CVD gets a negative thesis adj."""
+        inp = self._base_inputs(
+            setup_class="DIVERGENCE_CONTINUATION",
+            direction="LONG",
+            cvd_divergence="BEARISH",  # contra to LONG
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] < 0.0
+
+    # ── Cross-family differentiation ──────────────────────────────────
+
+    def test_reversal_scores_higher_than_trend_under_reversal_conditions(self, engine):
+        """Given identical shared inputs and reversal-favorable order flow,
+        LIQUIDATION_REVERSAL must score strictly higher than TREND_PULLBACK_CONTINUATION
+        (which gets no thesis adjustment).
+        """
+        shared = dict(
+            ema_fast=99.0, ema_slow=101.0,  # counter-trend for LONG
+            oi_trend="FALLING",
+            liq_vol_usd=1_000_000,
+            cvd_divergence="BULLISH",
+            regime="VOLATILE",
+            atr_percentile=60.0,
+            volume_last_usd=1_500_000,
+            volume_avg_usd=1_000_000,
+            rsi_last=48.0,
+            mtf_score=0.5,
+            direction="LONG",
+        )
+        r_reversal = engine.score(ScoringInput(setup_class="LIQUIDATION_REVERSAL", **shared))
+        r_trend = engine.score(ScoringInput(setup_class="TREND_PULLBACK_CONTINUATION", **shared))
+        assert r_reversal["total"] > r_trend["total"], (
+            f"Reversal {r_reversal['total']} should exceed trend {r_trend['total']} "
+            f"given reversal-favorable order flow"
+        )
+
+    def test_order_flow_family_scores_higher_than_breakout_under_cvd_conditions(self, engine):
+        """DIVERGENCE_CONTINUATION with aligned CVD must score higher than
+        BREAKOUT_RETEST (which gets no thesis adjustment) given the same inputs.
+
+        Use RANGING regime so neither setup gets a regime-affinity advantage,
+        allowing the thesis adjustment to be the determining factor.
+        """
+        shared = dict(
+            cvd_divergence="BULLISH",
+            oi_trend="FALLING",
+            regime="RANGING",
+            atr_percentile=60.0,
+            volume_last_usd=1_500_000,
+            volume_avg_usd=1_000_000,
+            rsi_last=48.0,
+            ema_fast=101.0,
+            ema_slow=100.0,
+            mtf_score=0.5,
+            direction="LONG",
+        )
+        r_div = engine.score(ScoringInput(setup_class="DIVERGENCE_CONTINUATION", **shared))
+        r_break = engine.score(ScoringInput(setup_class="BREAKOUT_RETEST", **shared))
+        assert r_div["total"] > r_break["total"]
+
+    def test_thesis_adj_bounded_above_for_reversal_family(self, engine):
+        """Reversal thesis adjustment must never exceed +8 pts."""
+        inp = ScoringInput(
+            setup_class="LIQUIDATION_REVERSAL",
+            direction="LONG",
+            ema_fast=99.0, ema_slow=101.0,
+            oi_trend="FALLING",
+            liq_vol_usd=50_000_000,
+            cvd_divergence="BULLISH",
+            funding_rate=-0.05,
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] <= 8.0
+
+    def test_thesis_adj_bounded_above_for_order_flow_family(self, engine):
+        """Order-flow family thesis adjustment must never exceed +6 pts."""
+        inp = ScoringInput(
+            setup_class="DIVERGENCE_CONTINUATION",
+            direction="LONG",
+            cvd_divergence="BULLISH",
+            oi_trend="FALLING",
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] <= 6.0
+
+    def test_total_never_exceeds_100_with_thesis_adj(self, engine):
+        """Total must never exceed 100 even with maximum thesis adjustment."""
+        sweep = MagicMock()
+        sweep.index = -1
+        inp = ScoringInput(
+            sweeps=[sweep], mss=MagicMock(), fvg_zones=[MagicMock()],
+            setup_class="LIQUIDATION_REVERSAL",
+            regime="VOLATILE",
+            atr_percentile=90.0,
+            volume_last_usd=5_000_000, volume_avg_usd=1_000_000,
+            macd_histogram_last=1.0, macd_histogram_prev=0.5,
+            rsi_last=35.0, ema_fast=99.0, ema_slow=101.0,
+            direction="LONG", mtf_score=1.0,
+            oi_trend="FALLING", liq_vol_usd=50_000_000,
+            cvd_divergence="BULLISH", funding_rate=-0.05,
+        )
+        result = engine.score(inp)
+        assert result["total"] <= 100.0
+
+    def test_families_not_uniformly_scored_under_identical_shared_inputs(self, engine):
+        """Core regression: major families must produce different final scores
+        when order-flow conditions clearly differentiate them.
+
+        This is the primary acceptance criterion for PR-ARCH-10: final
+        confidence is no longer effectively globally uniform across all
+        major setup families.
+        """
+        shared = dict(
+            ema_fast=99.0, ema_slow=101.0,  # counter-trend for LONG
+            oi_trend="FALLING",
+            liq_vol_usd=2_000_000,
+            cvd_divergence="BULLISH",
+            regime="VOLATILE",
+            atr_percentile=65.0,
+            volume_last_usd=1_500_000,
+            volume_avg_usd=1_000_000,
+            rsi_last=45.0,
+            mtf_score=0.6,
+            direction="LONG",
+        )
+        families = {
+            "reversal": "LIQUIDATION_REVERSAL",
+            "order_flow": "DIVERGENCE_CONTINUATION",
+            "trend": "TREND_PULLBACK_CONTINUATION",
+            "breakout": "BREAKOUT_RETEST",
+            "quiet": "RANGE_FADE",
+        }
+        scores = {
+            name: engine.score(ScoringInput(setup_class=sc, **shared))["total"]
+            for name, sc in families.items()
+        }
+        # Reversal and order-flow families must outperform trend/breakout/quiet
+        # under these reversal-favorable conditions (failing OI, bullish CVD).
+        assert scores["reversal"] > scores["trend"], (
+            f"Reversal ({scores['reversal']}) must beat trend ({scores['trend']})"
+        )
+        assert scores["order_flow"] > scores["trend"], (
+            f"Order-flow ({scores['order_flow']}) must beat trend ({scores['trend']})"
+        )
+        # Not all scores are identical
+        unique_scores = set(scores.values())
+        assert len(unique_scores) > 1, (
+            f"All families produced the same score — uniform scoring not resolved: {scores}"
+        )

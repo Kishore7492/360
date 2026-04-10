@@ -2611,6 +2611,15 @@ class Scanner:
                     _atr_pct = float(ctx.regime_context.atr_percentile)
                 except (TypeError, ValueError):
                     pass
+            # Gather order-flow signals for family-aware thesis scoring.
+            _pr09_oi_trend = "NEUTRAL"
+            _pr09_liq_vol = 0.0
+            if self.order_flow_store is not None:
+                try:
+                    _pr09_oi_trend = self.order_flow_store.get_oi_trend(symbol).value
+                    _pr09_liq_vol = self.order_flow_store.get_recent_liq_volume_usd(symbol)
+                except Exception:
+                    pass
             _scoring_inp = ScoringInput(
                 sweeps=ctx.smc_result.sweeps,
                 mss=ctx.smc_result.mss,
@@ -2629,6 +2638,10 @@ class Scanner:
                 direction=sig.direction.value,
                 chart_patterns=ctx.smc_data.get("chart_patterns", []),
                 mtf_score=getattr(sig, "mtf_score", 0.0),
+                cvd_divergence=ctx.smc_data.get("cvd_divergence"),
+                oi_trend=_pr09_oi_trend,
+                liq_vol_usd=_pr09_liq_vol,
+                funding_rate=_funding_rate,
             )
             _score_result = _scoring_engine.score(_scoring_inp)
             # Merge new dimension scores into component_scores (preserves existing keys)
@@ -2643,10 +2656,11 @@ class Scanner:
             else:
                 return None, cross_verified
             log.debug(
-                "PR09 score {} {} → {:.1f} (tier={}) smc={} regime={} vol={} ind={} pat={} mtf={}",
+                "PR09 score {} {} → {:.1f} (tier={}) smc={} regime={} vol={} ind={} pat={} mtf={} thesis_adj={}",
                 symbol, chan_name, _score_result["total"], sig.signal_tier,
                 _score_result["smc"], _score_result["regime"], _score_result["volume"],
                 _score_result["indicators"], _score_result["patterns"], _score_result["mtf"],
+                _score_result["thesis_adj"],
             )
         except Exception as _score_exc:
             log.debug("PR09 scoring engine error for {} {} (fail open): {}", symbol, chan_name, _score_exc)
