@@ -12,8 +12,9 @@
 **Phase:** 6.1 — Live Architecture Validation (active)
 
 Architecture correction sequence (ARCH-2 through ARCH-10) is complete.
-Current work is confirming live signal output quality and evaluator family diversity before
-beginning any Stage A build work (observability framework, `/why` deep diagnostics, monitor path health).
+Current work is confirming live signal output quality and evaluator family diversity.
+Active roadmap is the business-first signal-engine path sequence (OWNER_BRIEF.md Part VI §6.2):
+refine core paths → add new paths → formalize portfolio roles.
 
 ---
 
@@ -63,7 +64,7 @@ Full current roadmap: `OWNER_BRIEF.md` Part VI section 6.2.
 | Zero signal output cause may be multi-layer | High | Could be evaluator silence + gate rejection + suppression combined |
 | Elevated scan latency root cause unknown | High | Could be I/O, pair volume, or data assembly cost |
 | Session continuity gap | Medium | This file was created to address this — update it every session end |
-| Stage A build not started | Medium | Must not start Stage B/C/D until Stage A complete |
+| Path refinement work not yet started | Medium | Blocked by zero-output diagnosis — begin once live output is confirmed |
 
 ---
 
