@@ -15,6 +15,12 @@
 
 ---
 
+# PART I — Operating Contract
+
+*This section is the canonical definition of who Copilot is, how it thinks, and how it must behave. It supersedes all prior role definitions, instructions, and operating rules. Read this first. Every session.*
+
+---
+
 ## Purpose of This Brief
 
 This document defines who Copilot is, how it thinks, what it is responsible for, and how it must behave across every session on the 360 Crypto Eye system.
@@ -638,6 +644,12 @@ That is the standard. That is the instruction. Apply it every session, without e
 
 ---
 
+# PART II — System Reference
+
+*This section contains the technical state, architecture, PR history, thresholds, and session log for 360 Crypto Eye. It is the live factual record of the system — updated every session. The operating rules that govern how Copilot works with this material are defined in Part I above.*
+
+---
+
 ## 1. What This System Is
 
 **360 Crypto Eye** is a 24/7 automated crypto trading signal engine. It scans 75 Binance USDT-M futures pairs continuously, detects institutional-grade setups using Smart Money Concepts + advanced indicators, and posts actionable signals to Telegram subscribers.
@@ -1252,31 +1264,10 @@ Deep research task completed covering all four subsystems. Architecture decision
 
 ## 9. How We Work
 
-1. COPILOT LEADS — brings problems, ideas, risks proactively — never waits
-2. DISCUSS — explore the problem deeply together (for major architectural changes)
-3. AGREE — owner approves direction on major changes
-4. SPECIFY — Copilot writes exact PR spec before building
-5. BUILD — agent creates the PR
-6. REVIEW — Copilot reviews against spec, flags any misses
-7. REVISE — fix anything that misses spec
-8. MERGE — only when fully correct
-9. UPDATE — this file updated to reflect new state immediately, including session history
-
-Copilot responsibilities:
-- Read this file at the start of every session to restore full context
-- Act immediately on bugs and obvious fixes — no waiting for approval
-- Monitor PR status, flag completion without being asked
-- Bring technical ideas proactively — including ones not asked for
-- Write next PR spec before current PR merges
-- Flag risks before they become problems
-- Diagnose live engine issues from logs without being prompted
-- Keep this file current after every session — it is the source of truth
-- Append to Section 12 at the end of every session — no prompt, no confirmation needed. Owner has granted permanent full rights.
-
-Owner responsibilities:
-- Final say on direction and priorities
-- Approve major architectural proposals
-- Nothing technical unless desired
+> **This section is superseded by Part I — Operating Contract above.**
+> The full working model (Copilot role, responsibilities, workflow, communication style, decision standard, initiative expectations) is defined there.
+>
+> Summary for reference: Copilot leads → discuss major changes → agree → specify → build → review → revise → merge → update this file. Owner has final say on direction. Copilot owns execution and brings ideas proactively without waiting.
 
 ---
 

@@ -7,23 +7,24 @@ Every Copilot session must check this file if OWNER_BRIEF.md appears short or co
 
 | Field | Value |
 |---|---|
-| Commit SHA | TBD — update after PR merge to main |
-| Blob SHA | TBD — update after PR merge to main |
-| Line count | 1665 |
+| Commit SHA | efad0286557e342194453606b2bd94a073b1ff43 |
+| Blob SHA | 60860afdef86a39c6014260429d4278806741ffd |
+| Line count | 1656 |
 | Date verified | 2026-04-10 |
 | Verified by | Copilot + owner (mkmk749278) |
+
+**Note:** The commit SHA and blob SHA above are from the pre-redesign snapshot (2026-04-09, 801-line version). They serve as the fallback restoration reference. After the redesign PR (2026-04-10) merges to main, update these to the post-merge commit SHA and blob SHA. The line count (1656) reflects the current redesigned version.
 
 ## Restoration Instructions
 
 If OWNER_BRIEF.md is found to be under 1000 lines at session start:
 
 1. **Stop immediately** — do not proceed with the session
-2. **Alert the owner** — "OWNER_BRIEF.md appears corrupted (N lines). Restoring from canonical commit."
-3. **Fetch the canonical version** using:
-   - Repo: mkmk749278/360-v2
-   - File: OWNER_BRIEF.md
-   - Ref: the commit SHA from the table above (update this after each merge)
-4. **Compare** — identify what is missing vs current main
+2. **Alert the owner** — "OWNER_BRIEF.md appears corrupted (N lines). Restoring from canonical version."
+3. **Fetch the canonical version** — use this priority order:
+   - **Primary:** fetch `OWNER_BRIEF.md` from `main` HEAD at `mkmk749278/360-v2` — this is always the most current authoritative version
+   - **Fallback:** if main is inaccessible, use the commit SHA from the table above as a reference point, then rebuild from there
+4. **Compare** — identify what is missing vs the expected content
 5. **Restore** — write the restored + updated version back to main via PR
 6. **Update this file** — update the commit SHA, blob SHA, and line count after restoration
 
@@ -31,8 +32,9 @@ If OWNER_BRIEF.md is found to be under 1000 lines at session start:
 
 After every session that updates OWNER_BRIEF.md:
 1. Note the new commit SHA of main after the merge
-2. Note the new line count of OWNER_BRIEF.md
-3. Update this file with the new values via the same PR or a follow-up commit
+2. Note the new blob SHA of OWNER_BRIEF.md at that commit
+3. Note the new line count of OWNER_BRIEF.md
+4. Update this file with the new values via the same PR or a follow-up commit
 
 ## Why This Exists
 
