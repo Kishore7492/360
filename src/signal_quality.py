@@ -1017,8 +1017,8 @@ def build_risk_plan(
         # from the reclaim in a measured-move style continuation.  Anchor TP
         # geometry to the reclaim-to-invalidation span rather than generic
         # fallback ratios.
-        failed_auction_span = abs(structure - stop_loss)
-        measured_move = max(failed_auction_span, risk * 1.2)
+        reclaim_to_invalidation_span = abs(structure - stop_loss)
+        measured_move = max(reclaim_to_invalidation_span, risk * 1.2)
         tp1 = signal.entry + measured_move * 1.0 if _is_long else signal.entry - measured_move * 1.0
         tp2 = signal.entry + measured_move * 1.6 if _is_long else signal.entry - measured_move * 1.6
         tp3 = signal.entry + measured_move * 2.5 if _is_long else signal.entry - measured_move * 2.5
@@ -1054,7 +1054,10 @@ def build_risk_plan(
     _struct_fmt = price_decimal_fmt(structure)
     invalidation = f"{'Below' if signal.direction == Direction.LONG else 'Above'} {structure:{_struct_fmt}} structure + volatility buffer"
     if setup == SetupClass.FAILED_AUCTION_RECLAIM:
-        _sl_fmt = price_decimal_fmt(max(abs(stop_loss), 1e-12))
+        # Use a tiny positive floor so price_decimal_fmt() never receives zero
+        # (which would otherwise choose an unusably coarse precision bucket).
+        _MIN_FMT_PRICE = 1e-12
+        _sl_fmt = price_decimal_fmt(max(abs(stop_loss), _MIN_FMT_PRICE))
         if far_reclaim_level > 0:
             invalidation = (
                 f"{'Back below' if signal.direction == Direction.LONG else 'Back above'} "
