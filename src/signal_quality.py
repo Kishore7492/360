@@ -74,13 +74,13 @@ ACTIVE_PATH_PORTFOLIO_ROLES: Dict[SetupClass, PortfolioRole] = {
     SetupClass.TREND_PULLBACK_EMA: PortfolioRole.CORE,
     SetupClass.VOLUME_SURGE_BREAKOUT: PortfolioRole.CORE,
     SetupClass.BREAKDOWN_SHORT: PortfolioRole.CORE,
+    SetupClass.SR_FLIP_RETEST: PortfolioRole.CORE,
     SetupClass.CONTINUATION_LIQUIDITY_SWEEP: PortfolioRole.CORE,
     SetupClass.POST_DISPLACEMENT_CONTINUATION: PortfolioRole.CORE,
     # ── support ───────────────────────────────────────────────────────────
     # Situational contributors.  Fire in specific but commonly-occurring
     # conditions and provide meaningful signal diversity.
     SetupClass.LIQUIDATION_REVERSAL: PortfolioRole.SUPPORT,
-    SetupClass.SR_FLIP_RETEST: PortfolioRole.SUPPORT,
     SetupClass.DIVERGENCE_CONTINUATION: PortfolioRole.SUPPORT,
     SetupClass.OPENING_RANGE_BREAKOUT: PortfolioRole.SUPPORT,
     SetupClass.FAILED_AUCTION_RECLAIM: PortfolioRole.SUPPORT,

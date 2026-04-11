@@ -1783,6 +1783,7 @@ class TestPortfolioRoles:
             SetupClass.TREND_PULLBACK_EMA,
             SetupClass.VOLUME_SURGE_BREAKOUT,
             SetupClass.BREAKDOWN_SHORT,
+            SetupClass.SR_FLIP_RETEST,
             SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
             SetupClass.POST_DISPLACEMENT_CONTINUATION,
         }
@@ -1809,7 +1810,6 @@ class TestPortfolioRoles:
         """Support role must include situational contributors."""
         expected_support = {
             SetupClass.LIQUIDATION_REVERSAL,
-            SetupClass.SR_FLIP_RETEST,
             SetupClass.DIVERGENCE_CONTINUATION,
             SetupClass.OPENING_RANGE_BREAKOUT,
             SetupClass.FAILED_AUCTION_RECLAIM,
