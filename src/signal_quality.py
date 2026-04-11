@@ -821,6 +821,26 @@ def build_risk_plan(
         structure = structure if structure > signal.entry else signal.entry + atr_val
         stop_loss = round(structure + buffer, 8)
 
+    # FAILED_AUCTION_RECLAIM is not a generic recent-structure stop.  Its
+    # invalidation is the failed-auction wick extreme (with buffer), and the
+    # reclaim level is the structural boundary that was recovered.  Re-use the
+    # evaluator-computed stop when available so downstream risk handling stays
+    # aligned with the path thesis rather than drifting into the generic branch.
+    far_reclaim_level = _safe_float(getattr(signal, "far_reclaim_level", None), 0.0)
+    if setup == SetupClass.FAILED_AUCTION_RECLAIM:
+        far_structural_sl = _safe_float(getattr(signal, "stop_loss", None), 0.0)
+        if signal.direction == Direction.LONG and 0 < far_structural_sl < signal.entry:
+            stop_loss = round(far_structural_sl, 8)
+        elif signal.direction == Direction.SHORT and far_structural_sl > signal.entry:
+            stop_loss = round(far_structural_sl, 8)
+
+        # Use the reclaim level as the named structure for FAR invalidation
+        # summaries when it sits on the correct side of the entry.
+        if signal.direction == Direction.LONG and 0 < far_reclaim_level < signal.entry:
+            structure = far_reclaim_level
+        elif signal.direction == Direction.SHORT and far_reclaim_level > signal.entry:
+            structure = far_reclaim_level
+
     # Channel-aware hard cap on SL distance – clamp oversized stops before
     # they inflate risk and produce trades that hit SL within seconds.
     _chan = channel or getattr(signal, "channel", None) or ""
@@ -991,6 +1011,17 @@ def build_risk_plan(
         tp1 = signal.entry + risk * 1.4 if _is_long else signal.entry - risk * 1.4
         tp2 = signal.entry + risk * 2.2 if _is_long else signal.entry - risk * 2.2
         tp3 = signal.entry + risk * 3.2 if _is_long else signal.entry - risk * 3.2
+    elif setup == SetupClass.FAILED_AUCTION_RECLAIM:
+        # Failed-auction reclaim: price rejected acceptance beyond a structural
+        # level, reclaimed back through that level, and should now travel away
+        # from the reclaim in a measured-move style continuation.  Anchor TP
+        # geometry to the reclaim-to-invalidation span rather than generic
+        # fallback ratios.
+        failed_auction_span = abs(structure - stop_loss)
+        measured_move = max(failed_auction_span, risk * 1.2)
+        tp1 = signal.entry + measured_move * 1.0 if _is_long else signal.entry - measured_move * 1.0
+        tp2 = signal.entry + measured_move * 1.6 if _is_long else signal.entry - measured_move * 1.6
+        tp3 = signal.entry + measured_move * 2.5 if _is_long else signal.entry - measured_move * 2.5
     else:
         # Fallback for remaining families (MULTI_STRATEGY_CONFLUENCE,
         # BREAKDOWN_SHORT, and any future setups not yet classified).
@@ -1005,7 +1036,7 @@ def build_risk_plan(
         min_rr = _MIN_RR_RANGE
     elif setup in (SetupClass.LIQUIDATION_REVERSAL, SetupClass.FUNDING_EXTREME_SIGNAL):
         min_rr = _MIN_RR_MEAN_REVERSION
-    elif setup == SetupClass.SR_FLIP_RETEST:
+    elif setup in (SetupClass.SR_FLIP_RETEST, SetupClass.FAILED_AUCTION_RECLAIM):
         min_rr = _MIN_RR_STRUCTURED
     else:
         min_rr = _MIN_RR_DEFAULT
@@ -1022,6 +1053,19 @@ def build_risk_plan(
     # Dynamic decimal places for invalidation message (micro-cap tokens)
     _struct_fmt = price_decimal_fmt(structure)
     invalidation = f"{'Below' if signal.direction == Direction.LONG else 'Above'} {structure:{_struct_fmt}} structure + volatility buffer"
+    if setup == SetupClass.FAILED_AUCTION_RECLAIM:
+        _sl_fmt = price_decimal_fmt(max(abs(stop_loss), 1e-12))
+        if far_reclaim_level > 0:
+            invalidation = (
+                f"{'Back below' if signal.direction == Direction.LONG else 'Back above'} "
+                f"reclaimed level {structure:{_struct_fmt}} and through failed-auction "
+                f"wick/buffer {stop_loss:{_sl_fmt}}"
+            )
+        else:
+            invalidation = (
+                f"{'Below' if signal.direction == Direction.LONG else 'Above'} "
+                f"failed-auction wick/buffer {stop_loss:{_sl_fmt}} after reclaim failure"
+            )
 
     return RiskAssessment(
         passed=passed,

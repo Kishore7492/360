@@ -535,6 +535,64 @@ class TestScoringAndSelectTier:
         assert weak.quality_tier in {QualityTier.B, QualityTier.C}
 
 
+class TestFailedAuctionReclaimRiskPlan:
+    def test_far_risk_plan_uses_structural_stop_loss_long(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.0
+        signal.stop_loss = 98.7
+        signal.far_reclaim_level = 99.8
+        risk = build_risk_plan(
+            signal=signal,
+            indicators=_indicators(),
+            candles={"5m": _candles(base=100.0, trend=0.0)},
+            smc_data={"sweeps": [], "mss": None, "fvg": []},
+            setup=SetupClass.FAILED_AUCTION_RECLAIM,
+            spread_pct=0.01,
+            channel="360_SCALP",
+        )
+        assert risk.stop_loss == 98.7
+        assert "reclaimed level" in risk.invalidation_summary.lower()
+        assert "failed-auction" in risk.invalidation_summary.lower()
+
+    def test_far_risk_plan_uses_structural_stop_loss_short(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.SHORT)
+        signal.entry = 100.0
+        signal.stop_loss = 101.3
+        signal.far_reclaim_level = 100.2
+        risk = build_risk_plan(
+            signal=signal,
+            indicators=_indicators(),
+            candles={"5m": _candles(base=100.0, trend=0.0)},
+            smc_data={"sweeps": [], "mss": None, "fvg": []},
+            setup=SetupClass.FAILED_AUCTION_RECLAIM,
+            spread_pct=0.01,
+            channel="360_SCALP",
+        )
+        assert risk.stop_loss == 101.3
+        assert "reclaimed level" in risk.invalidation_summary.lower()
+        assert "failed-auction" in risk.invalidation_summary.lower()
+
+    def test_far_risk_plan_tp_geometry_is_measured_move_style(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.0
+        signal.stop_loss = 98.8
+        signal.far_reclaim_level = 99.8
+        risk = build_risk_plan(
+            signal=signal,
+            indicators=_indicators(),
+            candles={"5m": _candles(base=100.0, trend=0.0)},
+            smc_data={"sweeps": [], "mss": None, "fvg": []},
+            setup=SetupClass.FAILED_AUCTION_RECLAIM,
+            spread_pct=0.01,
+            channel="360_SCALP",
+        )
+        assert risk.tp1 > signal.entry
+        assert risk.tp2 > risk.tp1
+        assert risk.tp3 > risk.tp2
+        # FAR branch enforces at least a structured 1.2R first target.
+        assert risk.r_multiple >= 1.2
+
+
 class TestMarketStateClassification:
     def test_dirty_and_clean_range_distinguished(self):
         clean = classify_market_state(
