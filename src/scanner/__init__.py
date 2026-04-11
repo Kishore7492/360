@@ -249,6 +249,16 @@ _SMC_GATE_EXEMPT_SETUPS: frozenset = frozenset({
     # FAR uses its own structural gates (auction wick + reclaim); SMC sweep
     # score does not measure the failed-acceptance thesis.
     "FAILED_AUCTION_RECLAIM",
+    # PR-05 gate-policy alignment:
+    #   TREND_PULLBACK_EMA  — thesis: pullback to EMA9/EMA21 in a trending regime.
+    #                         Entry signal is EMA structure + candle touch, not a
+    #                         sweep event.  SMC sweep score is structurally low and
+    #                         does not measure the trend-pullback thesis correctly.
+    "TREND_PULLBACK_EMA",
+    #   WHALE_MOMENTUM      — thesis: large-actor order-flow impulse confirmed by
+    #                         OBI / tick delta.  No liquidity sweep required; sweep
+    #                         score does not reflect the order-flow thesis.
+    "WHALE_MOMENTUM",
 })
 
 # Setup classes whose signal thesis is NOT based on EMA alignment.
@@ -257,6 +267,13 @@ _TREND_GATE_EXEMPT_SETUPS: frozenset = frozenset({
     "LIQUIDATION_REVERSAL",
     "FUNDING_EXTREME_SIGNAL",
     "WHALE_MOMENTUM",
+    # PR-05 gate-policy alignment:
+    #   FAILED_AUCTION_RECLAIM — thesis: price reclaims a failed auction / wick
+    #                            rejection level.  The entry is anchored to the
+    #                            auction structure, not EMA trend alignment.
+    #                            Applying the trend hard gate (EMA score) is a
+    #                            mismatch for this structural-rejection path.
+    "FAILED_AUCTION_RECLAIM",
 })
 
 # Penalty multiplier applied to scalp-channel soft gates when the regime is
