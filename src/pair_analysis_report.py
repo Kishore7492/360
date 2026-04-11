@@ -221,8 +221,13 @@ def format_telegram_summary(report: FullAnalysisReport) -> str:
     return "\n".join(lines)
 
 
-def format_detailed_report(report: FullAnalysisReport) -> str:
-    """Format a detailed plain-text report."""
+def _wrap_code_block(text: str) -> str:
+    """Wrap *text* in a single Telegram/Markdown code block."""
+    return f"```\n{text}\n```"
+
+
+def format_detailed_report(report: FullAnalysisReport, *, as_code_block: bool = True) -> str:
+    """Format a detailed report, optionally wrapped as a single copyable code block."""
     lines = [
         "=" * 70,
         "PER-PAIR ANALYSIS REPORT",
@@ -326,7 +331,10 @@ def format_detailed_report(report: FullAnalysisReport) -> str:
                 lines.append(f"      Impact: {r.expected_impact}")
         lines.append("")
 
-    return "\n".join(lines)
+    detailed_report = "\n".join(lines)
+    if as_code_block:
+        return _wrap_code_block(detailed_report)
+    return detailed_report
 
 
 def export_json(report: FullAnalysisReport) -> str:

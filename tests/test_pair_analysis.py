@@ -681,10 +681,23 @@ class TestReportGeneration:
 
         report = run_pair_analysis(tracker, symbols)
         detailed = format_detailed_report(report)
+        assert detailed.startswith("```")
+        assert detailed.endswith("```")
         assert "PER-PAIR ANALYSIS REPORT" in detailed
         assert "BTCUSDT" in detailed
         assert "DOGEUSDT" in detailed
         assert "IMPACT ASSESSMENT" in detailed
+
+    def test_detailed_report_plaintext_opt_out(self, tmp_path: Any) -> None:
+        tracker = _make_tracker(tmp_path)
+        _fill_tracker_with_data(tracker)
+        symbols = tracker.get_all_traded_symbols()
+
+        report = run_pair_analysis(tracker, symbols)
+        detailed = format_detailed_report(report, as_code_block=False)
+        assert not detailed.startswith("```")
+        assert not detailed.endswith("```")
+        assert "PER-PAIR ANALYSIS REPORT" in detailed
 
     def test_json_export(self, tmp_path: Any) -> None:
         tracker = _make_tracker(tmp_path)
