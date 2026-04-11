@@ -88,7 +88,7 @@ ACTIVE_PATH_PORTFOLIO_ROLES: Dict[SetupClass, PortfolioRole] = {
     # conditions and provide meaningful signal diversity.
     SetupClass.LIQUIDATION_REVERSAL: PortfolioRole.SUPPORT,
     SetupClass.DIVERGENCE_CONTINUATION: PortfolioRole.SUPPORT,
-    SetupClass.OPENING_RANGE_BREAKOUT: PortfolioRole.SUPPORT,
+    SetupClass.OPENING_RANGE_BREAKOUT: PortfolioRole.SUPPORT,  # disabled by default (PR-06); role preserved pending proper rebuild
     SetupClass.FAILED_AUCTION_RECLAIM: PortfolioRole.SUPPORT,
     # ── specialist ────────────────────────────────────────────────────────
     # Low-frequency, narrow-context, high-selectivity paths.  Valid only
@@ -96,9 +96,13 @@ ACTIVE_PATH_PORTFOLIO_ROLES: Dict[SetupClass, PortfolioRole] = {
     SetupClass.WHALE_MOMENTUM: PortfolioRole.SPECIALIST,
     SetupClass.FUNDING_EXTREME_SIGNAL: PortfolioRole.SPECIALIST,
     SetupClass.QUIET_COMPRESSION_BREAK: PortfolioRole.SPECIALIST,
-    # NOTE: Auxiliary channel identities (FVG_RETEST, RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK)
-    # are registered as SetupClass values and preserved through the pipeline (PR-01) but
-    # their portfolio-role assignment is deferred to PR-04 (portfolio governance).
+    # NOTE: Auxiliary channel identities (FVG_RETEST, FVG_RETEST_HTF_CONFLUENCE,
+    # RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK) are registered as SetupClass values and
+    # preserved through the pipeline (PR-01) but are intentionally absent from this
+    # mapping.  They are sub-evaluators of auxiliary channels (360_SCALP_FVG,
+    # 360_SCALP_DIVERGENCE, 360_SCALP_ORDERBLOCK) whose portfolio role is expressed
+    # through their parent channel's enabled/disabled state, not via a standalone
+    # path-portfolio-role entry.
 }
 
 # PR-02: Setup classes whose evaluator-authored structural SL/TP geometry must be

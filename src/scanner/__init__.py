@@ -231,7 +231,7 @@ _REGIME_CHANNEL_INCOMPATIBLE: Dict[str, List[str]] = {
 #   FUNDING_EXTREME_SIGNAL   — thesis: funding-rate extremity + RSI + CVD divergence.
 #                              Funding is the primary edge; sweep is not required.
 #   DIVERGENCE_CONTINUATION  — thesis: order-flow / CVD divergence continuation.
-#                              PR09 SMC score is structurally 0–2 for this path.
+#                              SMC score is structurally 0–2 for this path.
 _SMC_GATE_EXEMPT_SETUPS: frozenset = frozenset({
     "OPENING_RANGE_BREAKOUT",
     "QUIET_COMPRESSION_BREAK",
@@ -2649,12 +2649,12 @@ class Scanner:
                 except (TypeError, ValueError):
                     pass
             # Gather order-flow signals for family-aware thesis scoring.
-            _pr09_oi_trend = "NEUTRAL"
-            _pr09_liq_vol = 0.0
+            _oi_trend = "NEUTRAL"
+            _liq_vol = 0.0
             if self.order_flow_store is not None:
                 try:
-                    _pr09_oi_trend = self.order_flow_store.get_oi_trend(symbol).value
-                    _pr09_liq_vol = self.order_flow_store.get_recent_liq_volume_usd(symbol)
+                    _oi_trend = self.order_flow_store.get_oi_trend(symbol).value
+                    _liq_vol = self.order_flow_store.get_recent_liq_volume_usd(symbol)
                 except Exception:
                     pass
             _scoring_inp = ScoringInput(
@@ -2677,8 +2677,8 @@ class Scanner:
                 mtf_score=getattr(sig, "mtf_score", 0.0),
                 cvd_divergence=ctx.smc_data.get("cvd_divergence"),
                 cvd_divergence_strength=float(ctx.smc_data.get("cvd_divergence_strength") or 0.0),
-                oi_trend=_pr09_oi_trend,
-                liq_vol_usd=_pr09_liq_vol,
+                oi_trend=_oi_trend,
+                liq_vol_usd=_liq_vol,
                 funding_rate=_funding_rate,
             )
             _score_result = _scoring_engine.score(_scoring_inp)
@@ -2693,31 +2693,31 @@ class Scanner:
                 sig.signal_tier = "WATCHLIST"
             else:
                 log.debug(
-                    "PR09 below-threshold {} {}: total={:.1f} smc={} regime={} vol={} ind={} pat={} mtf={} thesis_adj={}",
+                    "scoring below-threshold {} {}: total={:.1f} smc={} regime={} vol={} ind={} pat={} mtf={} thesis_adj={}",
                     symbol, chan_name, _score_result["total"],
                     _score_result["smc"], _score_result["regime"], _score_result["volume"],
                     _score_result["indicators"], _score_result["patterns"], _score_result["mtf"],
                     _score_result["thesis_adj"],
                 )
-                self._suppression_counters[f"pr09_below50:{chan_name}"] += 1
+                self._suppression_counters[f"score_below50:{chan_name}"] += 1
                 return None, cross_verified
             log.debug(
-                "PR09 score {} {} → {:.1f} (tier={}) smc={} regime={} vol={} ind={} pat={} mtf={} thesis_adj={}",
+                "composite score {} {} → {:.1f} (tier={}) smc={} regime={} vol={} ind={} pat={} mtf={} thesis_adj={}",
                 symbol, chan_name, _score_result["total"], sig.signal_tier,
                 _score_result["smc"], _score_result["regime"], _score_result["volume"],
                 _score_result["indicators"], _score_result["patterns"], _score_result["mtf"],
                 _score_result["thesis_adj"],
             )
         except Exception as _score_exc:
-            log.debug("PR09 scoring engine error for {} {} (fail open): {}", symbol, chan_name, _score_exc)
+            log.debug("scoring engine error for {} {} (fail open): {}", symbol, chan_name, _score_exc)
 
-        # Apply accumulated soft-gate confidence penalty after PR09 final score
-        # assignment so that the penalties are not overwritten by PR09's score.
+        # Apply accumulated soft-gate confidence penalty after composite final score
+        # assignment so that the penalties are not overwritten by the scoring engine.
         if soft_penalty > 0.0:
             sig.confidence -= soft_penalty
             sig.confidence = self._clamp_confidence(sig.confidence)
             log.debug(
-                "Soft-gate penalty applied {} {}: -{:.1f} → {:.1f} (post-PR09)",
+                "Soft-gate penalty applied {} {}: -{:.1f} → {:.1f} (post-scoring)",
                 symbol, chan_name, soft_penalty, sig.confidence,
             )
 
@@ -2794,7 +2794,7 @@ class Scanner:
         # SMC hard gate: require minimum structural basis (sweep OR MSS present).
         # A signal with smc_score < SMC_HARD_GATE_MIN has no institutional
         # footprint — it is a pure momentum/liquidity play with no SMC edge.
-        # Fail-open when the PR09 scoring engine did not populate "smc" (engine error).
+        # Fail-open when the scoring engine did not populate "smc" (engine error).
         # Relaxed minimum for SHORT signals in TRENDING_DOWN: market is going
         # their way, so the structural requirement is slightly eased.
         # Setup classes whose entry conditions are session/volume/structure based
@@ -2831,7 +2831,7 @@ class Scanner:
         # Trend hard gate: EMA alignment is non-negotiable for scalp channels.
         # indicator_score < TREND_HARD_GATE_MIN means MACD/RSI/EMA are not
         # supporting the direction — a structural contradiction.
-        # Fail-open when the PR09 scoring engine did not populate "indicators".
+        # Fail-open when the scoring engine did not populate "indicators".
         # Setup classes whose thesis does not depend on EMA alignment are exempt.
         if chan_name.startswith("360_SCALP") and "indicators" in sig.component_scores:
             _setup = getattr(sig, "setup_class", "")
