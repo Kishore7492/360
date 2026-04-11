@@ -15,25 +15,17 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Dict, List
-
-import pytest
+from typing import Any
 
 from src.pair_analyzer import (
-    PairRecommendation,
     PairSignalQuality,
     PairSnapshot,
     build_pair_snapshot,
     compute_pair_signal_quality,
     generate_pair_recommendations,
 )
-from src.pair_anomaly_detector import (
-    PairAnomaly,
-    detect_pair_anomalies,
-)
+from src.pair_anomaly_detector import detect_pair_anomalies
 from src.pair_analysis_report import (
-    FullAnalysisReport,
-    PairAnalysisResult,
     export_json,
     format_detailed_report,
     format_telegram_summary,
