@@ -35,7 +35,7 @@ Step 9 (path-by-path portfolio tuning) remains gated on live evidence.
 
 ## Current Active Priority
 
-1. **Gather live diagnostic evidence** — MTF gate and PR09 < 50 rejections are now visible in suppression summary. Next step: review suppression counts to understand what funnel stage is blocking candidates.
+1. **Gather live diagnostic evidence** — MTF gate and below-threshold scoring rejections are now visible in suppression summary (key: `score_below50:<chan>`). Next step: review suppression counts to understand what funnel stage is blocking candidates.
 2. **Step 9: Path-by-path portfolio tuning** — next roadmap item. Requires live diagnostic evidence (candidate rate, emit rate, gate-block distribution) before any threshold adjustments.
 
 ---
@@ -51,9 +51,10 @@ Step 9 (path-by-path portfolio tuning) remains gated on live evidence.
 - **Evidence:** `_prepare_signal` returned `None, None` at MTF gate with only a debug log. Suppression summary never showed MTF as a rejection cause.
 - **Fix:** Added `self._suppression_counters[f"mtf_gate:{chan_name}"] += 1` and `suppression_tracker.record()` at MTF gate rejection.
 
-### Fix 3 — PR09 < 50 rejection not logged
-- **Evidence:** PR09 < 50 branch returned `None` with no log or counter.
-- **Fix:** Added `log.debug()` with full component breakdown and `self._suppression_counters[f"pr09_below50:{chan_name}"] += 1`.
+### Fix 3 — Below-threshold rejection not logged
+- **Evidence:** Below-threshold score branch returned `None` with no log or counter.
+- **Fix:** Added `log.debug()` with full component breakdown and `self._suppression_counters[f"score_below50:{chan_name}"] += 1`.
+  (Key was originally named `pr09_below50`; renamed to `score_below50` in PR-09 cleanup for operator clarity.)
 
 ---
 
@@ -64,7 +65,7 @@ Step 9 (path-by-path portfolio tuning) remains gated on live evidence.
 | Zero live signal output — root cause not yet confirmed from live data | Critical | Observability improved in current PR — live suppression summary needed |
 | `ScanLat=~20398ms` — elevated scan latency | High | Cause not confirmed — not a code defect in signal path |
 | Heartbeat file missing after grace period | Medium | Needs trace — may be related to long scan latency |
-| PR09 score < 50 rejections previously silent | Medium | Fixed — now logged and counted in suppression summary |
+| Score < 50 rejections previously silent | Medium | Fixed — now logged and counted in suppression summary as `score_below50:<chan>` |
 | MTF gate rejections previously silent | High | Fixed — now counted in suppression summary |
 
 ---
@@ -106,4 +107,4 @@ Role assignments:
 
 ## Last Updated
 
-2026-04-11 — Pre-step-9 observability PR: added `"mean_reversion"` key to `_select_indicator_weights` (fixes 6 pre-existing test failures), added MTF gate and PR09 < 50 rejection tracking to suppression summary. `RANGE_FADE` evaluator remains permanently removed per OWNER_BRIEF.md. Next step is gathering live suppression data and proceeding to step 9 portfolio tuning.
+2026-04-11 — PR-09 residual cleanup complete: renamed `pr09_below50` suppression counter to `score_below50` for operator clarity; updated stale "deferred to PR-04" comment in `ACTIVE_PATH_PORTFOLIO_ROLES` and matching test to document that auxiliary channel sub-evaluators are intentionally absent from portfolio-role entries; annotated `OPENING_RANGE_BREAKOUT` as disabled-by-default pending rebuild; replaced all "PR09" log-message prefixes and "PR09 composite engine" comment references with cleaner "scoring"/"composite scoring engine" terminology. Pre-redeploy correction roadmap (PR-01 through PR-09) is now complete.

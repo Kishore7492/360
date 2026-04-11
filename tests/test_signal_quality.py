@@ -1762,9 +1762,13 @@ class TestPortfolioRoles:
     # This list must stay aligned with ScalpChannel.evaluate()'s evaluator
     # tuple (src/channels/scalp.py).  If an evaluator is added or removed
     # there, it must also be reflected here and in ACTIVE_PATH_PORTFOLIO_ROLES.
-    # NOTE: Auxiliary channel identities (FVG_RETEST, RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK)
-    # are preserved as distinct SetupClass values (PR-01) but their portfolio-role
-    # assignment is deferred to PR-04.
+    # NOTE: Auxiliary channel identities (FVG_RETEST, FVG_RETEST_HTF_CONFLUENCE,
+    # RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK) are preserved as distinct SetupClass values
+    # (PR-01) but are intentionally absent from ACTIVE_PATH_PORTFOLIO_ROLES.  They are
+    # sub-evaluators of auxiliary channels whose portfolio role is expressed through
+    # their parent channel's enabled/disabled state, not via a standalone path entry.
+    # OPENING_RANGE_BREAKOUT is disabled by default (PR-06) but its evaluator code and
+    # portfolio-role entry are preserved pending a proper session-anchored rebuild.
     ACTIVE_EVALUATOR_CLASSES = frozenset({
         SetupClass.LIQUIDITY_SWEEP_REVERSAL,
         SetupClass.TREND_PULLBACK_EMA,

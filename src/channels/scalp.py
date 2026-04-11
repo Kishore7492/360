@@ -1278,11 +1278,11 @@ class ScalpChannel(BaseChannel):
         # All evaluators in this family add a path-specific base boost to sig.confidence
         # before returning.  The scanner's _prepare_signal() pipeline overwrites this
         # value three times (legacy confidence → score_signal_components →
-        # PR09 composite engine) so this mutation does NOT affect the final signal
+        # composite scoring engine) so this mutation does NOT affect the final signal
         # confidence and does NOT bypass or double-count the family-aware scoring engine.
         # Quality differentiation (premium pullback zone, SMC context) is expressed
         # correctly via the soft_penalty_total system below, which the scanner deducts
-        # post-PR09, and via the PR09 engine's own _score_smc(fvg_zones=...) and
+        # post-scoring, and via the scoring engine's own _score_smc(fvg_zones=...) and
         # _score_volume() dimensions that already capture these signals independently.
         sig.confidence = min(100.0, sig.confidence + 8.0)
 
@@ -1322,7 +1322,7 @@ class ScalpChannel(BaseChannel):
           bound is widened from 0.5% to 0.1% to accept shallow-sprint entries that the
           original wrongly rejected.  Premium zone 0.3%–0.6% passes with no soft penalty;
           extended zone (0.1%–0.3% and 0.6%–0.75%) accumulates a +3.0 soft penalty via
-          soft_penalty_total (deducted post-PR09 by the scanner).
+          soft_penalty_total (deducted post-scoring by the scanner).
         - RSI hard gate relaxed from 28–55 to 20–68.  Borderline values (20–27 or 56–68)
           accumulate a +5.0 soft penalty rather than a hard block, because dead-cat
           bounces routinely push RSI to 55–68 before bearish continuation resumes.
@@ -1499,11 +1499,11 @@ class ScalpChannel(BaseChannel):
         # All evaluators in this family add a path-specific base boost to sig.confidence
         # before returning.  The scanner's _prepare_signal() pipeline overwrites this
         # value three times (legacy confidence → score_signal_components →
-        # PR09 composite engine) so this mutation does NOT affect the final signal
+        # composite scoring engine) so this mutation does NOT affect the final signal
         # confidence and does NOT bypass or double-count the family-aware scoring engine.
         # Quality differentiation (premium bounce zone, SMC context) is expressed
         # correctly via the soft_penalty_total system below, which the scanner deducts
-        # post-PR09, and via the PR09 engine's own _score_smc(fvg_zones=...) and
+        # post-scoring, and via the scoring engine's own _score_smc(fvg_zones=...) and
         # _score_volume() dimensions that already capture these signals independently.
         sig.confidence = min(100.0, sig.confidence + 8.0)
 
@@ -1928,12 +1928,12 @@ class ScalpChannel(BaseChannel):
         # Pre-score confidence annotation (established pattern for all evaluators).
         # All evaluators in this family add a path-specific base boost to sig.confidence
         # before returning.  The scanner's _prepare_signal() pipeline overwrites this
-        # value (legacy confidence → score_signal_components → PR09 composite engine)
+        # value (legacy confidence → score_signal_components → composite scoring engine)
         # so this mutation does NOT affect the final signal confidence and does NOT
         # bypass or double-count the family-aware scoring engine.
         # Quality differentiation (proximity zone, wick quality, RSI, SMC context) is
         # expressed correctly via the soft_penalty_total system below, which the scanner
-        # deducts post-PR09.
+        # deducts post-scoring.
         sig.confidence = min(100.0, sig.confidence + 8.0)
 
         # Accumulate soft penalties — the scanner deducts these from confidence after
@@ -2690,7 +2690,7 @@ class ScalpChannel(BaseChannel):
         sig.trailing_stage = 0
         sig.partial_close_pct = 0.0
 
-        # Accumulate soft penalties — deducted from confidence post-PR09 by scanner
+        # Accumulate soft penalties — deducted from confidence post-scoring by scanner
         total_penalty = rsi_penalty + fvg_ob_penalty + sweep_recency_penalty
         if total_penalty > 0.0:
             sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + total_penalty
@@ -3023,7 +3023,7 @@ class ScalpChannel(BaseChannel):
             consol_high if direction == Direction.LONG else consol_low, 8
         )
 
-        # Accumulate soft penalties — deducted from confidence post-PR09 by scanner
+        # Accumulate soft penalties — deducted from confidence post-scoring by scanner
         total_penalty = rsi_penalty + fvg_ob_penalty + consol_vol_penalty
         if total_penalty > 0.0:
             sig.soft_penalty_total = getattr(sig, "soft_penalty_total", 0.0) + total_penalty
