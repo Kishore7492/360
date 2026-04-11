@@ -1015,13 +1015,18 @@ def build_risk_plan(
         # Failed-auction reclaim: price rejected acceptance beyond a structural
         # level, reclaimed back through that level, and should now travel away
         # from the reclaim in a measured-move style continuation.  Anchor TP
-        # geometry to the reclaim-to-invalidation span rather than generic
-        # fallback ratios.
+        # geometry to the full reclaim structure: reclaim-to-invalidation span
+        # plus the entry's clearance beyond the reclaimed level.
         reclaim_to_invalidation_span = abs(structure - stop_loss)
-        measured_move = max(reclaim_to_invalidation_span, risk * 1.2)
-        tp1 = signal.entry + measured_move * 1.0 if _is_long else signal.entry - measured_move * 1.0
-        tp2 = signal.entry + measured_move * 1.6 if _is_long else signal.entry - measured_move * 1.6
-        tp3 = signal.entry + measured_move * 2.5 if _is_long else signal.entry - measured_move * 2.5
+        reclaim_clearance = abs(signal.entry - structure)
+        measured_move = (
+            reclaim_to_invalidation_span + reclaim_clearance
+            if reclaim_to_invalidation_span > 0
+            else risk
+        )
+        tp1 = signal.entry + measured_move * 1.2 if _is_long else signal.entry - measured_move * 1.2
+        tp2 = signal.entry + measured_move * 1.9 if _is_long else signal.entry - measured_move * 1.9
+        tp3 = signal.entry + measured_move * 3.0 if _is_long else signal.entry - measured_move * 3.0
     else:
         # Fallback for remaining families (MULTI_STRATEGY_CONFLUENCE,
         # BREAKDOWN_SHORT, and any future setups not yet classified).
@@ -1056,8 +1061,8 @@ def build_risk_plan(
     if setup == SetupClass.FAILED_AUCTION_RECLAIM:
         # Use a tiny positive floor so price_decimal_fmt() never receives zero
         # (which would otherwise choose an unusably coarse precision bucket).
-        _MIN_FMT_PRICE = 1e-12
-        _sl_fmt = price_decimal_fmt(max(abs(stop_loss), _MIN_FMT_PRICE))
+        min_fmt_price = 1e-12
+        _sl_fmt = price_decimal_fmt(max(abs(stop_loss), min_fmt_price))
         if far_reclaim_level > 0:
             invalidation = (
                 f"{'Back below' if signal.direction == Direction.LONG else 'Back above'} "
