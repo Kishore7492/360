@@ -716,9 +716,13 @@ ALL_CHANNELS: List[ChannelConfig] = [
 # skips it. Flip back to true in .env to re-enable instantly.
 # ---------------------------------------------------------------------------
 CHANNEL_SCALP_ENABLED:            bool = _safe_bool("CHANNEL_SCALP_ENABLED",            "true")
-CHANNEL_SCALP_FVG_ENABLED:        bool = _safe_bool("CHANNEL_SCALP_FVG_ENABLED",        "true")
-CHANNEL_SCALP_ORDERBLOCK_ENABLED: bool = _safe_bool("CHANNEL_SCALP_ORDERBLOCK_ENABLED", "true")
-CHANNEL_SCALP_DIVERGENCE_ENABLED: bool = _safe_bool("CHANNEL_SCALP_DIVERGENCE_ENABLED", "true")
+# PR-04: Auxiliary paid-channel paths disabled by default pending governance rebuild.
+# These channels (FVG_RETEST, RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK) are under review
+# and are not yet trusted for redeploy as part of the canonical production portfolio.
+# Code is preserved — set the corresponding env var to "true" to re-enable explicitly.
+CHANNEL_SCALP_FVG_ENABLED:        bool = _safe_bool("CHANNEL_SCALP_FVG_ENABLED",        "false")
+CHANNEL_SCALP_ORDERBLOCK_ENABLED: bool = _safe_bool("CHANNEL_SCALP_ORDERBLOCK_ENABLED", "false")
+CHANNEL_SCALP_DIVERGENCE_ENABLED: bool = _safe_bool("CHANNEL_SCALP_DIVERGENCE_ENABLED", "false")
 # Soft-disabled noisy channels — set env var to "true" to re-enable instantly
 CHANNEL_SCALP_CVD_ENABLED:        bool = _safe_bool("CHANNEL_SCALP_CVD_ENABLED",        "false")
 CHANNEL_SCALP_VWAP_ENABLED:       bool = _safe_bool("CHANNEL_SCALP_VWAP_ENABLED",       "false")
