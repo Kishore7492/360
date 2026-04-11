@@ -557,7 +557,10 @@ class TestAnalystReasonPreservation:
             "total": 77.0,
         }
         fvg_setup = _setup_pass(SetupClass.FVG_RETEST)
+        # PR-04: 360_SCALP_FVG is disabled by default for governance; re-enable
+        # here so we can test identity preservation through the pipeline.
         with _common_patches(scanner, extra=[
+            patch.dict("src.scanner._CHANNEL_ENABLED_FLAGS", {"360_SCALP_FVG": True}),
             patch.object(scanner, "_evaluate_setup", return_value=fvg_setup),
             patch.object(scanner_mod._scoring_engine, "score", return_value=pr09_score),
         ]):
@@ -631,7 +634,10 @@ class TestAnalystReasonPreservation:
             "total": 73.0,
         }
         div_setup = _setup_pass(SetupClass.RSI_MACD_DIVERGENCE)
+        # PR-04: 360_SCALP_DIVERGENCE is disabled by default for governance; re-enable
+        # here so we can test identity preservation through the pipeline.
         with _common_patches(scanner, extra=[
+            patch.dict("src.scanner._CHANNEL_ENABLED_FLAGS", {"360_SCALP_DIVERGENCE": True}),
             patch.object(scanner, "_evaluate_setup", return_value=div_setup),
             patch.object(scanner_mod._scoring_engine, "score", return_value=pr09_score),
         ]):
@@ -683,7 +689,10 @@ class TestSetupClassIdentityConsistency:
             "total": 77.0,
         }
         fvg_setup = _setup_pass(SetupClass.FVG_RETEST)
+        # PR-04: 360_SCALP_FVG is disabled by default for governance; re-enable
+        # here so we can test identity preservation through the pipeline.
         with _common_patches(scanner, extra=[
+            patch.dict("src.scanner._CHANNEL_ENABLED_FLAGS", {"360_SCALP_FVG": True}),
             patch.object(scanner, "_evaluate_setup", return_value=fvg_setup),
             patch.object(scanner_mod._scoring_engine, "score", return_value=pr09_score),
         ]):
@@ -723,7 +732,10 @@ class TestSetupClassIdentityConsistency:
             "total": 76.0,
         }
         ob_setup = _setup_pass(SetupClass.SMC_ORDERBLOCK)
+        # PR-04: 360_SCALP_ORDERBLOCK is disabled by default for governance; re-enable
+        # here so we can test identity preservation through the pipeline.
         with _common_patches(scanner, extra=[
+            patch.dict("src.scanner._CHANNEL_ENABLED_FLAGS", {"360_SCALP_ORDERBLOCK": True}),
             patch.object(scanner, "_evaluate_setup", return_value=ob_setup),
             patch.object(scanner_mod._scoring_engine, "score", return_value=pr09_score),
         ]):
