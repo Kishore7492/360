@@ -248,7 +248,7 @@ class TestProtectedPathsPreserveSLTP:
         assert risk.tp3 == pytest.approx(sig.tp3, rel=1e-6)
 
     def test_all_protected_setups_are_covered(self):
-        """Sanity: STRUCTURAL_SLTP_PROTECTED_SETUPS contains exactly the expected 8 paths.
+        """Sanity: STRUCTURAL_SLTP_PROTECTED_SETUPS contains exactly the expected 9 paths.
 
         SR_FLIP_RETEST is included because:
         - Its SL is anchored to the flipped structural level (level * 0.998),
@@ -257,6 +257,11 @@ class TestProtectedPathsPreserveSLTP:
           — both are structural anchors, not risk multiples.
         - It is one of the canonical strongest foundation paths in the audit and
           owner brief; its structural expression must survive downstream handling.
+
+        LIQUIDATION_REVERSAL is included because:
+        - Its TPs are Fibonacci retrace targets (38.2%/61.8%/100%) of the cascade
+          range — evaluator-computed structural geometry (Type D — Reversion).
+        - Generic R-multiples from build_risk_plan would flatten this thesis.
 
         DIVERGENCE_CONTINUATION is included because (B13 fix):
         - Its TPs are anchored to the swing high/low from the divergence detection
@@ -271,6 +276,7 @@ class TestProtectedPathsPreserveSLTP:
             SetupClass.TREND_PULLBACK_EMA,
             SetupClass.CONTINUATION_LIQUIDITY_SWEEP,
             SetupClass.SR_FLIP_RETEST,
+            SetupClass.LIQUIDATION_REVERSAL,
             SetupClass.DIVERGENCE_CONTINUATION,
         }
         assert STRUCTURAL_SLTP_PROTECTED_SETUPS == expected, (
@@ -408,6 +414,7 @@ class TestPredictiveAdjustmentBypassesProtectedPaths:
         "CONTINUATION_LIQUIDITY_SWEEP",
         "SR_FLIP_RETEST",
         "FAILED_AUCTION_RECLAIM",
+        "LIQUIDATION_REVERSAL",
         "DIVERGENCE_CONTINUATION",
     ])
     def test_predictive_does_not_scale_protected_path_tp(self, sc_str):
