@@ -402,7 +402,7 @@ class TestDivergenceContinuationInStructuralProtectionSet:
 # ---------------------------------------------------------------------------
 
 class TestDivergenceContinuationInPredictiveBypassSet:
-    """"DIVERGENCE_CONTINUATION" must be in _PREDICTIVE_SLTP_BYPASS_SETUPS
+    """'DIVERGENCE_CONTINUATION' must be in _PREDICTIVE_SLTP_BYPASS_SETUPS
     so that PredictiveEngine.adjust_tp_sl() does not scale structural TPs."""
 
     def test_divergence_continuation_in_predictive_bypass_set(self):

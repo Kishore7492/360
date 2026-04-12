@@ -2387,7 +2387,7 @@ class ScalpChannel(BaseChannel):
                 tp1 = close + sl_dist * 1.5
         else:
             _div_win_lows = [float(low_val) for low_val in lows[-20:]] if len(lows) >= 20 else []
-            tp1 = min(_div_win_lows) if _div_win_lows else float("inf")
+            tp1 = min(_div_win_lows) if _div_win_lows else close  # close triggers fallback below
             if tp1 >= close:
                 tp1 = close - sl_dist * 1.5
 
@@ -2397,7 +2397,7 @@ class ScalpChannel(BaseChannel):
             if tp2 <= close:
                 tp2 = close + sl_dist * 2.5
         else:
-            tp2 = min(float(low_val) for low_val in lows[-20:]) if len(lows) >= 20 else float("inf")
+            tp2 = min(float(low_val) for low_val in lows[-20:]) if len(lows) >= 20 else close
             if tp2 >= close:
                 tp2 = close - sl_dist * 2.5
 
