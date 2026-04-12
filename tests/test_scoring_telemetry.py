@@ -89,8 +89,9 @@ def test_scoring_tier_counters_dict_exists():
 async def test_scoring_tier_counters_populated():
     """Correct tier counter is incremented based on the composite score.
 
-    Three sub-cases: score >= 80 → score_80plus, score in [65,79] → score_65to79,
-    score in [50,64] → score_50to64.
+    Four sub-cases covering all branches: score >= 80 → score_80plus,
+    score in [65,79] → score_65to79, score in [50,64] → score_50to64,
+    score < 50 → score_below50.
     """
     setup_class = "CONTINUATION_LIQUIDITY_SWEEP"
 
@@ -98,6 +99,7 @@ async def test_scoring_tier_counters_populated():
         (82.0, f"score_80plus:{setup_class}"),
         (70.0, f"score_65to79:{setup_class}"),
         (55.0, f"score_50to64:{setup_class}"),
+        (40.0, f"score_below50:{setup_class}"),
     ]:
         scanner = _make_scanner()
         _sc = setup_class
