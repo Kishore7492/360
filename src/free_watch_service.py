@@ -87,7 +87,7 @@ class FreeWatchService:
         # In-memory store: dedupe_key → FreeWatch
         self._open_watches: Dict[str, FreeWatch] = {}
         self._running = False
-        self._task: Optional[asyncio.Task] = None  # type: ignore[type-arg]
+        self._task: Optional[asyncio.Task[None]] = None
         # Per-symbol cooldown tracking: symbol → last watch created_at (ISO)
         self._symbol_cooldown: Dict[str, str] = {}
 

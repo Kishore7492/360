@@ -91,10 +91,13 @@ class TestCreateWatch:
         assert svc.watch_count() == 1
 
     @pytest.mark.asyncio
-    async def test_different_bias_creates_separate_watch(self):
-        """Same symbol+channel with a different bias creates a separate watch."""
+    async def test_per_symbol_cooldown_blocks_second_watch(self):
+        """Per-symbol cooldown prevents a second radar watch for the same symbol,
+        even if the bias or setup differs from the first watch.
+        This is correct behavior: one active radar alert per symbol per cooldown window.
+        """
         svc, _ = _make_service()
-        await svc.create_watch(
+        w1 = await svc.create_watch(
             symbol="ETHUSDT",
             source_channel="360_SCALP",
             bias="LONG",
@@ -102,7 +105,10 @@ class TestCreateWatch:
             waiting_for="confirm",
             confidence=70,
         )
-        await svc.create_watch(
+        assert w1 is not None
+
+        # Second call for the same symbol (different bias) — blocked by cooldown.
+        w2 = await svc.create_watch(
             symbol="ETHUSDT",
             source_channel="360_SCALP",
             bias="SHORT",
@@ -110,12 +116,32 @@ class TestCreateWatch:
             waiting_for="confirm",
             confidence=70,
         )
-        # Different bias → different dedupe key → allowed.
-        # But per-symbol cooldown blocks the second in the same instant.
-        # The cooldown is RADAR_PER_SYMBOL_COOLDOWN_SECONDS which defaults to 900s.
-        # So the second call should be blocked by the per-symbol cooldown.
-        # This is correct behavior: one radar alert per symbol per cooldown window.
+        assert w2 is None  # blocked by per-symbol cooldown
         assert svc.watch_count() == 1  # only the first was accepted
+
+    @pytest.mark.asyncio
+    async def test_different_symbol_creates_independent_watch(self):
+        """Two different symbols can each have their own open radar watch."""
+        svc, _ = _make_service()
+        w1 = await svc.create_watch(
+            symbol="ETHUSDT",
+            source_channel="360_SCALP",
+            bias="LONG",
+            setup_name="SR_FLIP_RETEST",
+            waiting_for="confirm",
+            confidence=70,
+        )
+        w2 = await svc.create_watch(
+            symbol="BTCUSDT",
+            source_channel="360_SCALP",
+            bias="LONG",
+            setup_name="SR_FLIP_RETEST",
+            waiting_for="confirm",
+            confidence=70,
+        )
+        assert w1 is not None
+        assert w2 is not None
+        assert svc.watch_count() == 2
 
 
 # ---------------------------------------------------------------------------
