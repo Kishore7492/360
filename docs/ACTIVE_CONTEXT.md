@@ -45,7 +45,7 @@ The engine is live on VPS. Current task is to observe live monitor output after 
 
 ## Current Active Priority
 
-1. **Observe live monitor after PR-18** — check whether B-tier signals (65–79) are now dispatching and whether WATCHLIST candidates are reaching the free channel. Compare suppressor counts before and after.
+1. **Observe live monitor after PR-18** — check whether B-tier signals (65–79) are now dispatching and whether WATCHLIST handling is now preserved as intended downstream. Compare suppressor counts before and after.
 2. **Identify dominant suppressor post-PR-18** — confirmed pre-PR-18 suppressors: spread-quality rejection (~32–60 pairs/cycle), MTF gating (~14/cycle), quiet-regime floor. Determine if the pattern changes.
 3. **Evidence-gated next action** — if MTF gating remains the dominant paid-channel suppressor, prepare a targeted family-aware MTF gate refinement PR. Do not raise this until post-PR-18 evidence is reviewed.
 

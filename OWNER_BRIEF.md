@@ -657,7 +657,7 @@ Every SL hit is categorised: setup was wrong / regime changed after entry / stop
 
 Copilot is responsible for the following without being prompted:
 - Read monitor-logs output at each session start — confirm scan latency, evaluator output, and error patterns
-- After PR-18: confirm whether B-tier candidates are now dispatching and whether WATCHLIST candidates are reaching the free channel
+- After PR-18: confirm whether B-tier candidates are now dispatching and whether WATCHLIST handling is now preserved as intended through the router
 - Identify whether MTF gating remains the dominant paid-channel suppressor after the dispatch correction
 - If dominant suppression shifts or confirms as MTF-gate-related, propose targeted family-aware MTF refinement with evidence
 - Do not take speculative actions — the next PR must be justified by live monitor evidence
