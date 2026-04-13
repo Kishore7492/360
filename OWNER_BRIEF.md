@@ -531,7 +531,7 @@ Every signal must pass all 13 before dispatch:
 
 | Variable | Value | Reference |
 |---|---|---|
-| Min confidence SCALP | 65 | MIN_CONFIDENCE_SCALP (lowered from 80 by PR-18 to align with B-tier floor) |
+| Min confidence SCALP | 65 | MIN_CONFIDENCE_SCALP (lowered from 80 to 65 by PR-18 to align with B-tier floor (65–79)) |
 | Min confidence FVG | 78 | MIN_CONFIDENCE_FVG |
 | Min confidence ORDERBLOCK | 78 | MIN_CONFIDENCE_ORDERBLOCK |
 | Min confidence DIVERGENCE | 76 | MIN_CONFIDENCE_DIVERGENCE |
