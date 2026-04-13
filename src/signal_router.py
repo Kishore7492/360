@@ -556,12 +556,25 @@ class SignalRouter:
             (c for c in ALL_CHANNELS if c.name == signal.channel), None
         )
         if chan_cfg and signal.confidence < chan_cfg.min_confidence:
-            log.debug(
-                "Signal {} {} confidence {:.1f} < min {:.1f} – skipped",
-                signal.channel, signal.symbol,
-                signal.confidence, chan_cfg.min_confidence,
-            )
-            return
+            # WATCHLIST signals from the primary 360_SCALP channel have already been
+            # validated by the scanner's tier-preservation path.  Re-applying the
+            # paid-channel min-confidence floor here would silently destroy WATCHLIST
+            # semantics and contradict the declared tier policy for 360_SCALP.
+            if (
+                getattr(signal, "signal_tier", "") == "WATCHLIST"
+                and signal.channel == "360_SCALP"
+            ):
+                log.debug(
+                    "WATCHLIST signal {} {} confidence {:.1f} – bypassing router min-confidence floor",
+                    signal.channel, signal.symbol, signal.confidence,
+                )
+            else:
+                log.debug(
+                    "Signal {} {} confidence {:.1f} < min {:.1f} – skipped",
+                    signal.channel, signal.symbol,
+                    signal.confidence, chan_cfg.min_confidence,
+                )
+                return
 
         # Risk assessment: use the signal's own volume/spread fields so the risk
         # classifier has accurate data (set by the scanner before enqueuing).
