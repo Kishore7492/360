@@ -52,6 +52,7 @@ _PREDICTIVE_SLTP_BYPASS_SETUPS: frozenset[str] = frozenset({
     "FAILED_AUCTION_RECLAIM",  # already well-preserved; explicit to avoid regression
     "LIQUIDATION_REVERSAL",    # Fibonacci retrace TPs (Type D — Reversion)
     "DIVERGENCE_CONTINUATION", # divergence-window swing TPs; bypass predictive scaling
+    "FUNDING_EXTREME_SIGNAL",  # liquidation-cluster SL + structural FVG/OB TP1
 })
 
 

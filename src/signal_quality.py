@@ -125,6 +125,7 @@ STRUCTURAL_SLTP_PROTECTED_SETUPS: frozenset[SetupClass] = frozenset({
     SetupClass.SR_FLIP_RETEST,
     SetupClass.LIQUIDATION_REVERSAL,    # Fibonacci retrace TPs (Type D — Reversion)
     SetupClass.DIVERGENCE_CONTINUATION, # swing-based TPs from divergence detection window
+    SetupClass.FUNDING_EXTREME_SIGNAL,  # liquidation-cluster SL + structural FVG/OB TP1
 })
 
 
