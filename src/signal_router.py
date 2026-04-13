@@ -332,9 +332,12 @@ class SignalRouter:
             pass
 
     # Maximum unleveraged raw PnL % considered plausible for an active signal
-    # pulse.  If the computed value exceeds this, the signal state is likely
-    # stale or corrupted and the pulse is suppressed instead of posting
-    # misleading numbers.
+    # pulse.  Typical scalp signals move ±0.5–5%; swing signals rarely exceed
+    # ±15%.  30% provides a conservative ceiling that catches gross cross-symbol
+    # contamination or stale Redis prices (e.g. a 2× price error) without
+    # producing false positives on legitimate swing winners.  Finer-grained
+    # corruption (e.g. 10%) is caught by the WATCHLIST-tier guard or by the
+    # live current_price > 0 requirement.
     _PULSE_MAX_REASONABLE_PNL_PCT: float = 30.0
 
     async def _signal_pulse_loop(self) -> None:

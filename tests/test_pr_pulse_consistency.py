@@ -103,11 +103,13 @@ class TestPulseMath:
         assert abs(pnl - (-0.43)) < 0.01, f"Expected ~-0.43%, got {pnl:.4f}%"
 
     def test_short_tp1_distance_dashusdt_case(self):
-        """SHORT from 41.1900 with tp1 ≈ 36.57; current 41.3680 → TP1 in ≈ 11.65%."""
+        """SHORT from 41.1900 with tp1 = 36.57; current 41.3680 → TP1 in ≈ 11.65%.
+
+        tp1 = 36.57 is approximately 11.2% below entry, consistent with a scalp TP target.
+        """
         entry = 41.1900
         current = 41.3680
-        # tp1 derived: (current - tp1) / entry = 0.1165 → tp1 = current - 0.1165*entry
-        tp1 = current - 0.1165 * entry
+        tp1 = 36.57  # explicit TP1 target, ~11.2% below entry for this SHORT
         dist = self._tp1_dist(Direction.SHORT, entry, current, tp1)
         assert abs(dist - 11.65) < 0.02, f"Expected ~11.65%, got {dist:.4f}%"
 
@@ -154,12 +156,25 @@ class TestPulseMath:
     # ---- Sanity bound ----
 
     def test_implausible_pnl_would_be_suppressed(self):
-        """Illustrate that the -10.42% value in the bug report exceeds any reasonable
-        scalp bound and should be suppressed by the guard."""
+        """The magnitude guard (_PULSE_MAX_REASONABLE_PNL_PCT = 30%) catches truly
+        corrupted prices (e.g. cross-symbol contamination) but does NOT catch the
+        DASHUSDT -10.42% case, which is below the 30% bound.
+
+        The DASHUSDT bug is instead caught by the WATCHLIST-tier guard (if the signal
+        was WATCHLIST-tiered) or by requiring a live current_price > 0.  The magnitude
+        guard provides an additional safety net for severely corrupted state.
+        """
         observed_bad_pnl = -10.42
-        assert abs(observed_bad_pnl) > SignalRouter._PULSE_MAX_REASONABLE_PNL_PCT * 0.33, (
-            "The observed bad value should be large enough to be caught by a ≤30% bound"
+        # -10.42% is below the 30% magnitude guard, so it would NOT be caught by
+        # that guard alone.  The primary guards (WATCHLIST skip, current_price > 0,
+        # TP1 direction) are what prevent this value from appearing.
+        assert abs(observed_bad_pnl) < SignalRouter._PULSE_MAX_REASONABLE_PNL_PCT, (
+            "The observed bad value of -10.42% is below the magnitude threshold; "
+            "it requires the WATCHLIST or current_price guard to be caught."
         )
+        # A truly corrupted price (e.g. ×2 the entry) would be caught by the guard.
+        truly_corrupted_pnl = -45.0  # e.g. current_price was 2× entry for SHORT
+        assert abs(truly_corrupted_pnl) > SignalRouter._PULSE_MAX_REASONABLE_PNL_PCT
 
 
 # ---------------------------------------------------------------------------
@@ -385,9 +400,13 @@ class TestPulseLoopGuards:
 
     @pytest.mark.asyncio
     async def test_tp1_crossed_clamps_to_zero(self, sent_messages, active_chan, monkeypatch):
-        """When TP1 has already been crossed (tp1_dist < 0), pulse must show 0.00%."""
+        """When TP1 has already been crossed (price moved past TP1), tp1_dist must show 0.00%.
+
+        Uses status='ACTIVE' with current_price past TP1 (simulating the moment just before
+        the trade monitor has marked it TP1_HIT).  The clamp prevents displaying 'TP1 in -X%'.
+        """
         router = _make_router(sent_messages)
-        # LONG where price went past TP1
+        # LONG where price went past TP1 but status hasn't been updated yet
         sig = _make_signal(
             symbol="BTCUSDT",
             direction=Direction.LONG,
@@ -396,7 +415,7 @@ class TestPulseLoopGuards:
             tp1=32100.0,
             current_price=32200.0,  # past TP1 — tp1_dist would be negative without clamp
             signal_tier="B",
-            status="TP1_HIT",
+            status="ACTIVE",
         )
         sig._last_pulse_time = 0.0
         router._active_signals[sig.signal_id] = sig
