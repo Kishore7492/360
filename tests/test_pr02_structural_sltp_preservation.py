@@ -248,7 +248,7 @@ class TestProtectedPathsPreserveSLTP:
         assert risk.tp3 == pytest.approx(sig.tp3, rel=1e-6)
 
     def test_all_protected_setups_are_covered(self):
-        """Sanity: STRUCTURAL_SLTP_PROTECTED_SETUPS contains exactly the expected 9 paths.
+        """Sanity: STRUCTURAL_SLTP_PROTECTED_SETUPS contains exactly the expected 10 paths.
 
         SR_FLIP_RETEST is included because:
         - Its SL is anchored to the flipped structural level (level * 0.998),
@@ -267,6 +267,12 @@ class TestProtectedPathsPreserveSLTP:
         - Its TPs are anchored to the swing high/low from the divergence detection
           window — not generic R-multiples.
         - build_risk_plan() must not overwrite these pattern-based TPs.
+
+        FUNDING_EXTREME_SIGNAL is included because (PR-14 fix):
+        - Its SL is anchored to the nearest liquidation cluster (institutional anchor).
+        - Its TP1 is the nearest FVG/OB structural level in the direction of travel.
+        - Downstream build_risk_plan generic R-multiples would overwrite these
+          structural targets, defeating the evaluator's thesis.
         """
         expected = {
             SetupClass.POST_DISPLACEMENT_CONTINUATION,
@@ -278,9 +284,10 @@ class TestProtectedPathsPreserveSLTP:
             SetupClass.SR_FLIP_RETEST,
             SetupClass.LIQUIDATION_REVERSAL,
             SetupClass.DIVERGENCE_CONTINUATION,
+            SetupClass.FUNDING_EXTREME_SIGNAL,
         }
         assert STRUCTURAL_SLTP_PROTECTED_SETUPS == expected, (
-            "STRUCTURAL_SLTP_PROTECTED_SETUPS diverged from the PR-02 specification. "
+            "STRUCTURAL_SLTP_PROTECTED_SETUPS diverged from the PR-02/PR-14 specification. "
             "Update this test and the business rationale if the set must change."
         )
 

@@ -162,9 +162,6 @@ _BOOK_TICKER_CACHE_TTL: float = 20.0
 # ADX threshold below which SCALP signals are suppressed during RANGING regime
 _RANGING_ADX_SUPPRESS_THRESHOLD: float = 15.0
 
-# Confidence boost applied to SCALP RANGE_FADE setup class when regime is RANGING
-_RANGING_RANGE_FADE_CONF_BOOST: float = 5.0
-
 # Chart pattern direction sets (used by scanner for chart_pattern_names population)
 _CHART_BULLISH_PATTERNS: frozenset = frozenset({"DOUBLE_BOTTOM", "ASCENDING_TRIANGLE"})
 _CHART_BEARISH_PATTERNS: frozenset = frozenset({"DOUBLE_TOP", "DESCENDING_TRIANGLE"})
@@ -1999,21 +1996,6 @@ class Scanner:
             return None
         return result.total
 
-    def _apply_regime_channel_adjustments(
-        self,
-        symbol: str,
-        chan_name: str,
-        sig: Any,
-        ctx: ScanContext,
-    ) -> None:
-        if chan_name == "360_SCALP" and ctx.is_ranging and sig.setup_class == "RANGE_FADE":
-            sig.confidence += _RANGING_RANGE_FADE_CONF_BOOST
-            log.debug(
-                "SCALP RANGE_FADE confidence boosted for {} (RANGING): {:.1f}",
-                symbol,
-                sig.confidence,
-            )
-
     async def _apply_predictive_adjustments(
         self,
         symbol: str,
@@ -2471,7 +2453,6 @@ class Scanner:
         if legacy_confidence is None:
             return None, cross_verified
         sig.confidence = legacy_confidence
-        self._apply_regime_channel_adjustments(symbol, chan_name, sig, ctx)
         await self._apply_predictive_adjustments(symbol, sig, ctx)
         setup_score = score_signal_components(
             pair_quality=ctx.pair_quality,

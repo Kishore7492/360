@@ -923,36 +923,44 @@ class TestFamilyAwareTP:
     # ── Mean-reversion / snap-back families ────────────────────────────────
 
     @pytest.mark.parametrize("setup", [
-        SetupClass.FUNDING_EXTREME_SIGNAL,
+        SetupClass.EXHAUSTION_FADE,
+        # PR-14: FUNDING_EXTREME_SIGNAL excluded — it is now in
+        # STRUCTURAL_SLTP_PROTECTED_SETUPS so build_risk_plan preserves
+        # evaluator-authored TPs; TP1 is no longer a fixed R-multiple.
     ])
     def test_mean_reversion_tp1_is_tight(self, setup):
-        """Snap-back families must use tp1 ≈ 1.0R (tighter than trend families).
+        """Snap-back families must use tp1 ≈ 1.2R (tighter than trend families).
 
         LIQUIDATION_REVERSAL is excluded here because it now uses evaluator-authored
         Fibonacci retrace TPs (38.2%/61.8%/100% of cascade range) preserved by
-        STRUCTURAL_SLTP_PROTECTED_SETUPS — its TP1 is no longer a fixed 1.0R multiple.
+        STRUCTURAL_SLTP_PROTECTED_SETUPS — its TP1 is no longer a fixed R-multiple.
+        PR-14: FUNDING_EXTREME_SIGNAL is also excluded for the same reason — added
+        to STRUCTURAL_SLTP_PROTECTED_SETUPS so evaluator-authored TPs are preserved.
+        EXHAUSTION_FADE (1.2R) is used as the snap-back family representative.
         """
         risk = _risk_plan_for(setup)
         assert risk.passed, f"{setup.value} plan unexpectedly failed: {risk.reason}"
         entry = 100.0
         risk_dist = entry - risk.stop_loss
         tp1_ratio = (risk.tp1 - entry) / risk_dist
-        assert tp1_ratio == pytest.approx(1.0, abs=0.05), (
-            f"{setup.value} tp1 ratio {tp1_ratio:.2f} deviates from expected 1.0R"
+        assert tp1_ratio == pytest.approx(1.2, abs=0.05), (
+            f"{setup.value} tp1 ratio {tp1_ratio:.2f} deviates from expected 1.2R"
         )
         assert risk.tp2 > risk.tp1
 
     def test_mean_reversion_tp1_tighter_than_trend(self):
-        """FUNDING_EXTREME_SIGNAL tp1 must be closer to entry than TREND_PULLBACK_CONTINUATION.
+        """Mean-reversion tp1 must be closer to entry than TREND_PULLBACK_CONTINUATION.
 
         LIQUIDATION_REVERSAL is excluded from this comparison because it now uses
         evaluator-authored Fibonacci retrace TPs preserved by STRUCTURAL_SLTP_PROTECTED_SETUPS,
         making its TP1 variable and unrelated to a fixed R-multiple ordering.
+        PR-14: FUNDING_EXTREME_SIGNAL is also excluded for the same reason — it is
+        now in STRUCTURAL_SLTP_PROTECTED_SETUPS so its TP is evaluator-authored.
         """
-        rev = _risk_plan_for(SetupClass.FUNDING_EXTREME_SIGNAL)
+        rev = _risk_plan_for(SetupClass.EXHAUSTION_FADE)
         trend = _risk_plan_for(SetupClass.TREND_PULLBACK_CONTINUATION)
         assert rev.tp1 < trend.tp1, (
-            "Mean-reversion (FUNDING_EXTREME_SIGNAL) tp1 should be closer to entry than trend tp1"
+            "Mean-reversion (EXHAUSTION_FADE) tp1 should be closer to entry than trend tp1"
         )
 
     # ── Measured-move breakout families ────────────────────────────────────
@@ -1126,12 +1134,15 @@ class TestFamilyAwareTP:
     def test_tp1_ordering_mean_rev_lt_trend_lt_breakout(self):
         """Family TP1 ordering: mean-reversion < trend < breakout (measured move).
 
-        Uses FUNDING_EXTREME_SIGNAL as the mean-reversion representative because
-        LIQUIDATION_REVERSAL now uses evaluator-authored Fibonacci retrace TPs
-        (preserved by STRUCTURAL_SLTP_PROTECTED_SETUPS) which are variable and not
-        comparable to fixed R-multiple ordering.
+        Uses EXHAUSTION_FADE as the mean-reversion representative because both
+        LIQUIDATION_REVERSAL and FUNDING_EXTREME_SIGNAL now use evaluator-authored
+        structural TPs (preserved by STRUCTURAL_SLTP_PROTECTED_SETUPS) which are
+        variable and not comparable to fixed R-multiple ordering.
+        PR-14: FUNDING_EXTREME_SIGNAL was previously the representative here;
+        it was moved to STRUCTURAL_SLTP_PROTECTED_SETUPS so its TP is now
+        evaluator-authored and no longer a fixed R-multiple.
         """
-        mean_rev = _risk_plan_for(SetupClass.FUNDING_EXTREME_SIGNAL)
+        mean_rev = _risk_plan_for(SetupClass.EXHAUSTION_FADE)
         trend = _risk_plan_for(SetupClass.TREND_PULLBACK_CONTINUATION)
         breakout = _risk_plan_for(SetupClass.BREAKOUT_RETEST)
         assert mean_rev.tp1 < trend.tp1 < breakout.tp1, (
