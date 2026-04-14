@@ -3,18 +3,20 @@
 Verifies the governance correction that aligns 360_SCALP dispatch behavior
 with the declared tier policy:
   A+  = 80-100  → dispatched to paid channel (unchanged)
-  B   = 65-79   → dispatched to paid channel (previously blocked by min_confidence=80)
-  WATCHLIST = 50-64 → preserved through scanner AND router (previously dropped by
-                       router's re-application of paid-channel min_confidence)
+  B   = 65-79   → dispatched to paid channel
+  WATCHLIST = 50-64 → routed to FREE CHANNEL ONLY as a zone-alert preview;
+                       never registered in _active_signals, never managed by
+                       TradeMonitor (doctrine: "Post to free channel only")
 
 Covered invariants
 ──────────────────
 1. B-tier (65-79) candidate is NOT blocked by a legacy floor in scanner config.
-2. WATCHLIST signal bypasses the router min-confidence floor (not silently destroyed).
-3. A+ behavior is unchanged.
-4. Non-360_SCALP channels' min-confidence behavior is unchanged.
-5. Non-WATCHLIST signals below chan floor are still rejected by the router.
-6. No hidden fallback: a WATCHLIST signal on a non-scalp channel is still rejected.
+2. WATCHLIST signal is NOT registered in _active_signals (not a paid active trade).
+3. WATCHLIST signal is posted to the free channel as a zone-alert preview.
+4. A+ behavior is unchanged.
+5. Non-360_SCALP channels' min-confidence behavior is unchanged.
+6. Non-WATCHLIST signals below chan floor are still rejected by the router.
+7. WATCHLIST on a non-360_SCALP channel is not posted to any channel.
 """
 
 from __future__ import annotations
@@ -78,6 +80,9 @@ def router(queue, sent_messages, monkeypatch):
         monkeypatch.setitem(signal_router_module.CHANNEL_TELEGRAM_MAP, channel, "premium")
     monkeypatch.setitem(signal_router_module.CHANNEL_TELEGRAM_MAP, "360_SWING", "premium")
 
+    # Set up a free channel ID so WATCHLIST posts can be captured.
+    monkeypatch.setattr(signal_router_module, "TELEGRAM_FREE_CHANNEL_ID", "free_channel")
+
     async def mock_send(chat_id: str, text: str) -> bool:
         sent_messages.append((chat_id, text))
         return True
@@ -89,11 +94,12 @@ def router(queue, sent_messages, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Helper: run router for a single signal and return whether it was sent
+# Helper: run router for a single signal and return whether it was registered
+# in _active_signals (i.e. entered the paid active lifecycle).
 # ---------------------------------------------------------------------------
 
 async def _route_signal(router: SignalRouter, queue: asyncio.Queue, sig: Signal) -> bool:
-    """Enqueue *sig*, run the router briefly, and return True if it was sent."""
+    """Enqueue *sig*, run the router briefly, return True if in active_signals."""
     await queue.put(sig)
     task = asyncio.create_task(router.start())
     await asyncio.sleep(0.2)
@@ -184,54 +190,82 @@ class TestScalpMinConfidenceConfig:
 
 
 # ---------------------------------------------------------------------------
-# Invariant 3: Router — WATCHLIST bypass
+# Invariant 3: Router — WATCHLIST doctrine (free channel only, not active_signals)
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Invariant 3: Router — WATCHLIST bypass (scoped to 360_SCALP only)
-# ---------------------------------------------------------------------------
+class TestRouterWatchlistDoctrine:
+    """WATCHLIST signals from 360_SCALP must go to the free channel only.
 
-class TestRouterWatchlistBypass:
-    """WATCHLIST signals from the primary 360_SCALP channel must not be dropped."""
+    They must NOT be registered in _active_signals and must NOT enter the
+    paid active lifecycle.  Doctrine: 'Post to free channel only'.
+    """
 
     @pytest.mark.asyncio
-    async def test_watchlist_scalp_signal_is_dispatched(self, queue, router, sent_messages):
-        """A WATCHLIST-tier 360_SCALP signal (confidence=55) reaches dispatch."""
+    async def test_watchlist_scalp_signal_not_in_active_signals(self, queue, router, sent_messages):
+        """A WATCHLIST-tier 360_SCALP signal must NOT enter _active_signals."""
         sig = _make_signal(
             channel="360_SCALP", confidence=55.0, signal_tier="WATCHLIST"
         )
-        dispatched = await _route_signal(router, queue, sig)
-        assert dispatched, (
-            "WATCHLIST 360_SCALP signal with confidence=55 was not dispatched. "
-            "The router must bypass its min-confidence floor for WATCHLIST 360_SCALP signals."
+        in_active = await _route_signal(router, queue, sig)
+        assert not in_active, (
+            "WATCHLIST 360_SCALP signal with confidence=55 must NOT be registered "
+            "in _active_signals.  WATCHLIST is free-channel-only per doctrine."
+        )
+
+    @pytest.mark.asyncio
+    async def test_watchlist_scalp_signal_posted_to_free_channel(self, queue, router, sent_messages):
+        """A WATCHLIST-tier 360_SCALP signal must be posted to the free channel."""
+        sig = _make_signal(
+            channel="360_SCALP", confidence=55.0, signal_tier="WATCHLIST"
+        )
+        sig.analyst_reason = "Trend Pullback Ema"
+        sig.setup_class = "TREND_PULLBACK_EMA"
+        await _route_signal(router, queue, sig)
+        free_posts = [text for chat_id, text in sent_messages if chat_id == "free_channel"]
+        assert free_posts, (
+            "WATCHLIST 360_SCALP signal with confidence=55 must produce a post "
+            "to the free channel.  No free-channel message was found."
+        )
+        # The post should contain a WATCHLIST zone-alert marker, not a paid signal header.
+        assert any("WATCHLIST" in text for text in free_posts), (
+            "Free-channel post for a WATCHLIST signal must contain 'WATCHLIST'."
+        )
+
+    @pytest.mark.asyncio
+    async def test_watchlist_not_posted_to_paid_channel(self, queue, router, sent_messages):
+        """A WATCHLIST-tier 360_SCALP signal must NOT be posted to the paid channel."""
+        sig = _make_signal(
+            channel="360_SCALP", confidence=55.0, signal_tier="WATCHLIST"
+        )
+        await _route_signal(router, queue, sig)
+        paid_posts = [text for chat_id, text in sent_messages if chat_id == "premium"]
+        assert not paid_posts, (
+            "WATCHLIST 360_SCALP signal must NOT be posted to the paid channel. "
+            f"Found {len(paid_posts)} paid-channel post(s)."
         )
 
     @pytest.mark.asyncio
     async def test_non_watchlist_below_floor_is_rejected(self, queue, router, sent_messages):
         """A signal that is NOT tagged WATCHLIST must still be rejected
-        if its confidence is below the channel floor.  The bypass must be tier-specific."""
-        # Confidence 55 is below channel floor, but signal_tier is "B" not "WATCHLIST"
+        if its confidence is below the channel floor."""
         sig = _make_signal(
             channel="360_SCALP", confidence=55.0, signal_tier="B"
         )
         dispatched = await _route_signal(router, queue, sig)
-        # 55 < 65 (CHANNEL_SCALP.min_confidence) and tier is not WATCHLIST → must be rejected
         assert not dispatched, (
             "A non-WATCHLIST signal with confidence=55 below the channel floor "
             "must still be rejected by the router."
         )
 
     @pytest.mark.asyncio
-    async def test_watchlist_bypass_scoped_to_360_scalp(
+    async def test_watchlist_non_360_scalp_not_in_active_signals(
         self, queue, router, sent_messages, monkeypatch
     ):
-        """WATCHLIST bypass fires only for channel == '360_SCALP'.
-        A scalp sub-channel (360_SCALP_FVG) WATCHLIST signal with confidence below
-        its own floor must still be rejected — the bypass is not extended to
-        sub-channels without explicit doctrine evidence."""
+        """WATCHLIST routing is scoped to channel == '360_SCALP'.
+        A scalp sub-channel WATCHLIST signal with confidence below its own floor
+        must not enter active_signals (dropped at min-confidence filter)."""
         from config import ChannelConfig
 
-        # Inject a fake scalp sub-channel with a high floor
         fake_chan = ChannelConfig(
             name="FAKE_SCALP_SUB",
             emoji="⚡",
@@ -253,8 +287,8 @@ class TestRouterWatchlistBypass:
         sig = _make_signal(channel="FAKE_SCALP_SUB", confidence=55.0, signal_tier="WATCHLIST")
         dispatched = await _route_signal(router, queue, sig)
         assert not dispatched, (
-            "WATCHLIST bypass must not fire for channels other than '360_SCALP'. "
-            "FAKE_SCALP_SUB WATCHLIST signal with confidence=55 must be rejected."
+            "WATCHLIST free-channel routing is scoped to '360_SCALP' only. "
+            "FAKE_SCALP_SUB WATCHLIST signal must not enter active_signals."
         )
 
 

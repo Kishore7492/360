@@ -2948,7 +2948,8 @@ class Scanner:
             and chan_name in _SCALP_CHANNELS
             and sig.confidence >= _watchlist_confidence
         ):
-            # Keep as WATCHLIST — clear entry/SL/TP for zone-alert-only format
+            # Keep as WATCHLIST — the router will dispatch this to the free
+            # channel only (zone-alert preview, not a paid active trade).
             self._populate_signal_context(sig, volume_24h, ctx)
             return sig, cross_verified
         if (
