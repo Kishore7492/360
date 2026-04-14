@@ -936,10 +936,14 @@ class SignalRouter:
 
         now_str = signal.timestamp.strftime("%Y-%m-%d %H:%M:%S") if signal.timestamp else ""
 
+        # entry is a required float field always set to close; guard against 0
+        # (degenerate market-data case) so the formatter never shows "0.00000000".
+        entry_str = fmt_price(signal.entry) if signal.entry else "N/A"
+
         lines = [
             f"🔍 WATCHLIST — {TelegramBot._escape_md(signal.symbol)}",
             f"Zone: {TelegramBot._escape_md(dir_word)} setup forming near "
-            f"{TelegramBot._escape_md(fmt_price(signal.entry))}",
+            f"{TelegramBot._escape_md(entry_str)}",
         ]
         reason_parts = []
         if reason:
