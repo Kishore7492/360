@@ -311,6 +311,40 @@ _MTF_REGIME_CONFIG: Dict[str, Dict[str, float]] = {
     "QUIET":         {"min_score": 0.4, "higher_tf_weight": 0.8, "lower_tf_weight": 1.2},
 }
 
+# PR-1: first-stage family-aware MTF threshold policy for active 360_SCALP.
+# This is intentionally a policy-table layer (family-specific min-score caps),
+# not a full family-specific MTF semantic rewrite yet.
+_SCALP_SETUP_TO_FAMILY: Dict[str, str] = {
+    "TREND_PULLBACK_EMA": "trend_following",
+    "VOLUME_SURGE_BREAKOUT": "breakout_momentum",
+    "BREAKDOWN_SHORT": "breakout_momentum",
+    "OPENING_RANGE_BREAKOUT": "breakout_momentum",
+    "POST_DISPLACEMENT_CONTINUATION": "continuation",
+    "CONTINUATION_LIQUIDITY_SWEEP": "continuation",
+    "WHALE_MOMENTUM": "orderflow_momentum",
+    "LIQUIDITY_SWEEP_REVERSAL": "reversal",
+    "LIQUIDATION_REVERSAL": "reversal",
+    "SR_FLIP_RETEST": "reclaim_retest",
+    "FAILED_AUCTION_RECLAIM": "reclaim_retest",
+    "FUNDING_EXTREME_SIGNAL": "mean_reversion",
+    "QUIET_COMPRESSION_BREAK": "compression",
+    "DIVERGENCE_CONTINUATION": "divergence",
+}
+
+_SCALP_MTF_POLICY_BY_FAMILY: Dict[str, Dict[str, Optional[float]]] = {
+    # Explicitly intentional: TREND_PULLBACK_EMA stays on generic regime-driven
+    # strictness (no PR-1 cap override for trend-following family).
+    "trend_following": {"min_score_cap": None},
+    "breakout_momentum": {"min_score_cap": None},
+    "continuation": {"min_score_cap": 0.45},
+    "orderflow_momentum": {"min_score_cap": 0.45},
+    "reversal": {"min_score_cap": 0.35},
+    "reclaim_retest": {"min_score_cap": 0.35},
+    "mean_reversion": {"min_score_cap": 0.30},
+    "divergence": {"min_score_cap": 0.30},
+    "compression": {"min_score_cap": 0.25},
+}
+
 # Per-channel SMC timeframe preference order.
 # SCALP → low-TF sweeps are valid entry triggers.
 # Channels not listed here use the detector's default order.
@@ -2154,6 +2188,19 @@ class Scanner:
             # lower timeframes are already aligned by definition in a downtrend.
             if _regime_key == "TRENDING_DOWN" and sig.direction.value == "SHORT":
                 _mtf_min_score = min(_mtf_min_score, MTF_MIN_SCORE_TRENDING_SHORT)
+            _generic_mtf_min_score = _mtf_min_score
+
+            _setup_class_name = setup.setup_class.value
+            _setup_family = _SCALP_SETUP_TO_FAMILY.get(_setup_class_name, "other")
+            if chan_name == "360_SCALP":
+                _family_policy = _SCALP_MTF_POLICY_BY_FAMILY.get(_setup_family, {})
+                _family_mtf_cap = _family_policy.get("min_score_cap")
+                # Track only effective relaxations (cap is tighter/equal => no behavior change).
+                if _family_mtf_cap is not None and _family_mtf_cap < _mtf_min_score:
+                    _mtf_min_score = _family_mtf_cap
+                    self._suppression_counters[
+                        f"mtf_policy_relaxed:360_SCALP:{_setup_family}"
+                    ] += 1
             # Build TF weight overrides from the regime config
             _higher_tfs = {"4h", "1d"}
             _lower_tfs = {"1m", "5m", "15m"}
@@ -2186,6 +2233,9 @@ class Scanner:
             if not mtf_allowed:
                 log.debug("MTF gate blocked {} {}: {}", symbol, chan_name, mtf_reason)
                 self._suppression_counters[f"mtf_gate:{chan_name}"] += 1
+                if chan_name == "360_SCALP":
+                    self._suppression_counters[f"mtf_gate_family:360_SCALP:{_setup_family}"] += 1
+                    self._suppression_counters[f"mtf_gate_setup:360_SCALP:{_setup_class_name}"] += 1
                 self.suppression_tracker.record(SuppressionEvent(
                     symbol=symbol,
                     channel=chan_name,
@@ -2194,6 +2244,18 @@ class Scanner:
                     would_be_confidence=sig.confidence,
                 ))
                 return None, None
+            if chan_name == "360_SCALP" and _mtf_min_score < _generic_mtf_min_score:
+                _generic_allowed, _ = check_mtf_gate(
+                    sig.direction.value,
+                    mtf_data,
+                    min_score=_generic_mtf_min_score,
+                    tf_weight_overrides=_tf_weight_overrides or None,
+                )
+                if not _generic_allowed:
+                    # Survival-delta telemetry only: this counts candidates
+                    # preserved by family-aware PR-1 threshold policy versus
+                    # generic MTF threshold. It is not quality proof by itself.
+                    self._suppression_counters[f"mtf_policy_saved:360_SCALP:{_setup_family}"] += 1
 
         # Resolve regime penalty multiplier for all soft gates below.
         # Scalp channels in QUIET regime use a higher multiplier to ensure
@@ -3280,4 +3342,3 @@ class Scanner:
                 "Tier 3 auto-promoted %d pairs to Tier 2: %s",
                 len(promoted), promoted[:10],
             )
-
