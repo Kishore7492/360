@@ -311,10 +311,10 @@ _MTF_REGIME_CONFIG: Dict[str, Dict[str, float]] = {
     "QUIET":         {"min_score": 0.4, "higher_tf_weight": 0.8, "lower_tf_weight": 1.2},
 }
 
-# PR-1: active 360_SCALP MTF is family-aware instead of one-size-fits-all.
-# Trend-following paths retain stricter alignment; reversal/reclaim/compression
-# families get controlled min-score caps so family thesis is not flattened.
-_SCALP_SETUP_FAMILY_BY_SETUP: Dict[str, str] = {
+# PR-1: first-stage family-aware MTF threshold policy for active 360_SCALP.
+# This is intentionally a policy-table layer (family-specific min-score caps),
+# not a full family-specific MTF semantic rewrite yet.
+_SCALP_SETUP_TO_FAMILY: Dict[str, str] = {
     "TREND_PULLBACK_EMA": "trend_following",
     "VOLUME_SURGE_BREAKOUT": "breakout_momentum",
     "BREAKDOWN_SHORT": "breakout_momentum",
@@ -331,14 +331,18 @@ _SCALP_SETUP_FAMILY_BY_SETUP: Dict[str, str] = {
     "DIVERGENCE_CONTINUATION": "divergence",
 }
 
-_SCALP_MTF_MIN_SCORE_CAP_BY_FAMILY: Dict[str, float] = {
-    "continuation": 0.45,
-    "orderflow_momentum": 0.45,
-    "reversal": 0.35,
-    "reclaim_retest": 0.35,
-    "mean_reversion": 0.30,
-    "divergence": 0.30,
-    "compression": 0.25,
+_SCALP_MTF_POLICY_BY_FAMILY: Dict[str, Dict[str, Optional[float]]] = {
+    # Explicitly intentional: TREND_PULLBACK_EMA stays on generic regime-driven
+    # strictness (no PR-1 cap override for trend-following family).
+    "trend_following": {"min_score_cap": None},
+    "breakout_momentum": {"min_score_cap": None},
+    "continuation": {"min_score_cap": 0.45},
+    "orderflow_momentum": {"min_score_cap": 0.45},
+    "reversal": {"min_score_cap": 0.35},
+    "reclaim_retest": {"min_score_cap": 0.35},
+    "mean_reversion": {"min_score_cap": 0.30},
+    "divergence": {"min_score_cap": 0.30},
+    "compression": {"min_score_cap": 0.25},
 }
 
 # Per-channel SMC timeframe preference order.
@@ -2187,9 +2191,10 @@ class Scanner:
             _generic_mtf_min_score = _mtf_min_score
 
             _setup_class_name = setup.setup_class.value
-            _setup_family = _SCALP_SETUP_FAMILY_BY_SETUP.get(_setup_class_name, "other")
+            _setup_family = _SCALP_SETUP_TO_FAMILY.get(_setup_class_name, "other")
             if chan_name == "360_SCALP":
-                _family_mtf_cap = _SCALP_MTF_MIN_SCORE_CAP_BY_FAMILY.get(_setup_family)
+                _family_policy = _SCALP_MTF_POLICY_BY_FAMILY.get(_setup_family, {})
+                _family_mtf_cap = _family_policy.get("min_score_cap")
                 # Track only effective relaxations (cap is tighter/equal => no behavior change).
                 if _family_mtf_cap is not None and _family_mtf_cap < _mtf_min_score:
                     _mtf_min_score = _family_mtf_cap
@@ -2247,6 +2252,9 @@ class Scanner:
                     tf_weight_overrides=_tf_weight_overrides or None,
                 )
                 if not _generic_allowed:
+                    # Survival-delta telemetry only: this counts candidates
+                    # preserved by family-aware PR-1 threshold policy versus
+                    # generic MTF threshold. It is not quality proof by itself.
                     self._suppression_counters[f"mtf_policy_saved:360_SCALP:{_setup_family}"] += 1
 
         # Resolve regime penalty multiplier for all soft gates below.

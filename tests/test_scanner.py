@@ -874,6 +874,21 @@ class TestMTFGateInScanner:
         assert called_min_score == pytest.approx(0.35)
 
     @pytest.mark.asyncio
+    async def test_mtf_gate_keeps_generic_min_score_for_trend_following_family(self):
+        scanner, signal_queue = self._scanner_and_queue()
+        mock_mtf = MagicMock(return_value=(False, "MTF misaligned"))
+
+        with _common_gate_patches(scanner, [
+            patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.TREND_PULLBACK_EMA)),
+            patch("src.scanner.check_mtf_gate", mock_mtf),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_not_awaited()
+        called_min_score = mock_mtf.call_args.kwargs["min_score"]
+        assert called_min_score == pytest.approx(0.6)
+
+    @pytest.mark.asyncio
     async def test_mtf_gate_reject_tracks_family_and_setup_counters(self):
         scanner, signal_queue = self._scanner_and_queue()
 
