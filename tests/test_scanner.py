@@ -224,6 +224,19 @@ class TestScannerCooldown:
             "lifecycle:SL_HIT:360_SCALP:reclaim_retest:FAILED_AUCTION_RECLAIM"
         ] == 1
 
+    def test_lifecycle_outcome_uses_origin_setup_identity_when_setup_missing(self):
+        scanner = _make_scanner()
+        sig = _make_signal(channel="360_SCALP")
+        sig.setup_class = ""
+        sig.origin_setup_class = "FAILED_AUCTION_RECLAIM"
+        sig.origin_setup_family = "reclaim_retest"
+
+        scanner.on_signal_lifecycle_outcome(sig, "SL_HIT")
+
+        assert scanner._path_funnel_counters[
+            "lifecycle:SL_HIT:360_SCALP:reclaim_retest:FAILED_AUCTION_RECLAIM"
+        ] == 1
+
 
 class TestScannerCircuitBreaker:
     def test_circuit_breaker_not_set_by_default(self):
@@ -1323,6 +1336,12 @@ class TestMTFGateInScanner:
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
 
         signal_queue.put.assert_awaited_once()
+        emitted_sig = signal_queue.put.await_args.args[0]
+        assert emitted_sig.origin_setup_class == emitted_sig.setup_class
+        assert emitted_sig.origin_setup_family == scanner._setup_family_for_channel(
+            emitted_sig.channel,
+            emitted_sig.setup_class,
+        )
         emitted = {
             k: v for k, v in scanner._path_funnel_counters.items()
             if k.startswith("emitted:360_SCALP:")

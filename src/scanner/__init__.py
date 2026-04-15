@@ -2015,6 +2015,18 @@ class Scanner:
     def _increment_path_funnel(self, stage: str, chan_name: str, setup_class_name: Any) -> None:
         self._path_funnel_counters[self._path_funnel_key(stage, chan_name, setup_class_name)] += 1
 
+    def _stamp_origin_setup_identity(self, sig: Any, chan_name: str) -> None:
+        """Persist immutable origin setup identity on a signal."""
+        _origin_setup_class = self._normalize_setup_class(
+            getattr(sig, "origin_setup_class", None) or getattr(sig, "setup_class", None)
+        )
+        _origin_setup_family = (
+            str(getattr(sig, "origin_setup_family", "") or "")
+            or self._setup_family_for_channel(chan_name, _origin_setup_class)
+        )
+        setattr(sig, "origin_setup_class", _origin_setup_class)
+        setattr(sig, "origin_setup_family", _origin_setup_family)
+
     @staticmethod
     def _metric_token(value: Any) -> str:
         _text = str(value or "unknown")
@@ -2024,8 +2036,16 @@ class Scanner:
     def on_signal_lifecycle_outcome(self, sig: Any, outcome_label: str) -> None:
         """Record final lifecycle outcome against origin setup family/path."""
         _chan_name = getattr(sig, "channel", "") or "UNKNOWN"
-        _setup_class_name = getattr(sig, "setup_class", "") or "UNKNOWN"
-        self._increment_path_funnel(f"lifecycle:{outcome_label}", _chan_name, _setup_class_name)
+        _setup_class_name = self._normalize_setup_class(
+            getattr(sig, "origin_setup_class", None) or getattr(sig, "setup_class", None)
+        )
+        _setup_family = (
+            str(getattr(sig, "origin_setup_family", "") or "")
+            or self._setup_family_for_channel(_chan_name, _setup_class_name)
+        )
+        self._path_funnel_counters[
+            f"lifecycle:{outcome_label}:{_chan_name}:{_setup_family}:{_setup_class_name}"
+        ] += 1
 
     @staticmethod
     def _get_primary_timeframe(chan_name: str) -> str:
@@ -2317,6 +2337,7 @@ class Scanner:
         return True
 
     async def _enqueue_signal(self, sig: Any) -> bool:
+        self._stamp_origin_setup_identity(sig, getattr(sig, "channel", "") or "UNKNOWN")
         return await self.signal_queue.put(sig)
 
     async def _prepare_signal(
@@ -3442,6 +3463,7 @@ class Scanner:
                         else:
                             self._increment_path_funnel("gated", chan_name, _raw_setup)
                         continue
+                    self._stamp_origin_setup_identity(sig, chan_name)
                     _sig_dir = (
                         sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
                     )
@@ -3509,6 +3531,7 @@ class Scanner:
                     else:
                         self._increment_path_funnel("gated", chan_name, _raw_setup)
                     continue
+                self._stamp_origin_setup_identity(sig, chan_name)
                 # Directional global cooldown check: skip if same (symbol, direction)
                 # fired recently. Opposite direction is not blocked.
                 _sig_dir = sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
