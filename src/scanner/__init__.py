@@ -22,7 +22,10 @@ import uuid
 
 from config import (
     CHANNEL_ENABLE_DEFAULTS,
+    CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS,
     CHANNEL_RADAR_ROLE_DEFAULTS,
+    CHANNEL_ROLLOUT_STATE_DEFAULTS,
+    CHANNEL_ROLLOUT_STATES_ALLOWED,
     CHANNEL_VOLATILE_FAMILY_GOVERNED,
     CHANNEL_SCALP_CVD_ENABLED,
     CHANNEL_SCALP_DIVERGENCE_ENABLED,
@@ -660,6 +663,7 @@ class Scanner:
         # Read by _get_scanner_context() → RadarChannel every 30s.
         self._radar_scores: Dict[str, Any] = {}
         self._last_channel_governance_snapshot: Dict[str, Dict[str, Any]] = {}
+        self._rollout_fail_closed_logged: Set[str] = set()
 
         # Data fetcher — delegates kline and order-book retrieval
         self._data_fetcher = DataFetcher(
@@ -685,28 +689,81 @@ class Scanner:
 
     def _classify_channel_runtime_role(self, channel_name: str) -> str:
         """Return explicit runtime role for channel governance telemetry."""
-        _runtime_enabled = _CHANNEL_ENABLED_FLAGS.get(channel_name, False)
         _default_enabled = CHANNEL_ENABLE_DEFAULTS.get(channel_name, False)
         _product_role = _CHANNEL_PRODUCT_ROLES.get(channel_name, "specialist")
-        _channel_radar_governed = CHANNEL_RADAR_ROLE_DEFAULTS.get(channel_name, False)
-        _radar_callback_wired = getattr(self, "on_radar_candidate", None) is not None
-        if _runtime_enabled:
-            # runtime_active_paid vs specialist_paid are intentionally distinct:
-            # both are runtime-enabled paid paths, but the second is a specialist
-            # product role rather than the core paid production role.
+        _rollout_state = self._resolve_channel_rollout_state(channel_name)
+        if _rollout_state == "full_live":
             if _product_role == "paid":
                 return "runtime_active_paid"
-            return "specialist_paid"
-        if _channel_radar_governed and _radar_callback_wired:
+            return "specialist_full_live"
+        if _rollout_state == "limited_live":
+            return "specialist_limited_live"
+        if _rollout_state == "radar_only":
             return "radar_only"
         if not _default_enabled:
             return "intentionally_disabled"
         return "governance_disabled"
 
+    def _resolve_channel_rollout_state(self, channel_name: str) -> str:
+        """Resolve rollout state with explicit fail-closed handling."""
+        _raw = str(CHANNEL_ROLLOUT_STATE_DEFAULTS.get(channel_name, "disabled")).strip().lower()
+        if _raw in CHANNEL_ROLLOUT_STATES_ALLOWED:
+            # Runtime flag acts as emergency kill-switch for live rollout states.
+            # Missing channel entries intentionally fail-closed to disabled.
+            if _raw in {"full_live", "limited_live"} and not _CHANNEL_ENABLED_FLAGS.get(channel_name, False):
+                return "disabled"
+            if _raw == "radar_only":
+                _radar_governed = CHANNEL_RADAR_ROLE_DEFAULTS.get(channel_name, False)
+                if not _radar_governed:
+                    return "disabled"
+            return _raw
+        _key = f"{channel_name}:{_raw or 'empty'}"
+        if _key not in self._rollout_fail_closed_logged:
+            self._rollout_fail_closed_logged.add(_key)
+            log.warning(
+                "Unknown rollout state for {}: {!r} — fail-closing to disabled",
+                channel_name,
+                _raw,
+            )
+        return "disabled"
+
+    def _is_live_rollout_enabled_for_symbol(self, channel_name: str, symbol: str) -> bool:
+        """Return True when channel is allowed to evaluate on live paid path."""
+        _state = self._resolve_channel_rollout_state(channel_name)
+        if _state == "full_live":
+            return True
+        if _state != "limited_live":
+            return False
+        _pilot_symbols = CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS.get(channel_name, frozenset())
+        return symbol in _pilot_symbols
+
+    def _is_radar_rollout_enabled(self, channel_name: str, symbol: str) -> bool:
+        """Return True when channel is allowed on observe-only radar path."""
+        _state = self._resolve_channel_rollout_state(channel_name)
+        if _state == "radar_only":
+            return True
+        if _state == "limited_live":
+            # Keep observe-only visibility outside pilot scope.
+            return not self._is_live_rollout_enabled_for_symbol(channel_name, symbol)
+        return False
+
+    def _record_rollout_live_exclusion(self, channel_name: str, symbol: str) -> None:
+        """Emit explicit telemetry when rollout policy excludes a live-path evaluation."""
+        _state = self._resolve_channel_rollout_state(channel_name)
+        self._channel_funnel_counters[f"rollout_excluded:live:{_state}:{channel_name}"] += 1
+        if _state == "limited_live":
+            _pilot_symbols = CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS.get(channel_name, frozenset())
+            if symbol not in _pilot_symbols:
+                self._channel_funnel_counters[
+                    f"rollout_excluded:live:limited_live_non_pilot:{channel_name}"
+                ] += 1
+
     def _channel_governance_snapshot(self) -> Dict[str, Dict[str, Any]]:
         """Build inspectable runtime/default governance truth for all channels."""
         _snapshot: Dict[str, Dict[str, Any]] = {}
         for _chan_name, _runtime_enabled in _CHANNEL_ENABLED_FLAGS.items():
+            _rollout_state = self._resolve_channel_rollout_state(_chan_name)
+            _pilot_symbols = sorted(CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS.get(_chan_name, frozenset()))
             _snapshot[_chan_name] = {
                 "product_role": _CHANNEL_PRODUCT_ROLES.get(_chan_name, "specialist"),
                 "config_default_enabled": CHANNEL_ENABLE_DEFAULTS.get(
@@ -714,6 +771,10 @@ class Scanner:
                 ),
                 "runtime_enabled": _runtime_enabled,
                 "runtime_role": self._classify_channel_runtime_role(_chan_name),
+                "rollout_state": _rollout_state,
+                "rollout_live_enabled": _rollout_state in {"limited_live", "full_live"},
+                "rollout_radar_enabled": _rollout_state in {"limited_live", "radar_only"},
+                "limited_live_pilot_symbols": _pilot_symbols,
             }
         return _snapshot
 
@@ -3371,8 +3432,10 @@ class Scanner:
 
         for chan in self.channels:
             chan_name = chan.config.name
-            # Skip disabled channels — flip env var to re-enable instantly
-            if not _CHANNEL_ENABLED_FLAGS.get(chan_name, True):
+            # Controlled rollout gating (PR-5): explicit per-channel state
+            # decides live eligibility with fail-closed semantics.
+            if not self._is_live_rollout_enabled_for_symbol(chan_name, symbol):
+                self._record_rollout_live_exclusion(chan_name, symbol)
                 continue
             if self._should_skip_channel(symbol, chan_name, ctx):
                 continue
@@ -3549,9 +3612,9 @@ class Scanner:
                 self._setup_eval_counts[_sc] += 1
                 _pending_signals.append((sig, chan_name))
 
-        # --- Radar evaluation pass (explicit radar-governed channels only) ----------
-        # Evaluates channels that are soft-disabled via _CHANNEL_ENABLED_FLAGS and
-        # explicitly designated for radar participation in CHANNEL_RADAR_ROLE_DEFAULTS.
+        # --- Radar evaluation pass (explicit rollout-governed observe-only paths) ---
+        # Evaluates channels in radar_only state and limited_live channels outside
+        # their pilot symbol scope.
         # Results are written to _radar_scores for RadarChannel to read.
         # No signals are published here — fail-safe: exceptions are debug-logged.
         _regime_str = ""
@@ -3561,10 +3624,8 @@ class Scanner:
             pass
         for chan in self.channels:
             chan_name = chan.config.name
-            if _CHANNEL_ENABLED_FLAGS.get(chan_name, True):
-                continue  # Only evaluate soft-disabled channels here
-            if not CHANNEL_RADAR_ROLE_DEFAULTS.get(chan_name, False):
-                continue  # Explicitly non-radar channels remain fully disabled
+            if not self._is_radar_rollout_enabled(chan_name, symbol):
+                continue
             try:
                 _radar_result = chan.evaluate(
                     symbol=symbol,

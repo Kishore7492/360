@@ -4,7 +4,8 @@ Verifies that the active production defaults now match the canonical governance
 doctrine defined in OWNER_BRIEF.md Part VI §6.2:
 
 1. Auxiliary paid-channel paths (360_SCALP_FVG, 360_SCALP_DIVERGENCE,
-   360_SCALP_ORDERBLOCK) are no longer active by default.
+   360_SCALP_ORDERBLOCK) are governed explicitly by rollout state, with
+   360_SCALP_DIVERGENCE in limited-live pilot.
 2. Core trusted 360_SCALP internal evaluators remain active.
 3. Runtime routing / scanner initialization matches the governance doctrine.
 4. Auxiliary channel code remains present and callable — the disable is a
@@ -69,12 +70,12 @@ class TestAuxiliaryChannelsDisabledByDefault:
             "and not yet trusted for redeploy (PR-04)."
         )
 
-    def test_360_scalp_divergence_disabled_by_default(self):
-        """360_SCALP_DIVERGENCE must be disabled out of the box."""
-        cfg = _reload_config_with_env({"CHANNEL_SCALP_DIVERGENCE_ENABLED": "false"})
-        assert cfg.CHANNEL_SCALP_DIVERGENCE_ENABLED is False, (
-            "360_SCALP_DIVERGENCE must default to disabled — RSI_MACD_DIVERGENCE path "
-            "is under governance review and not yet trusted for redeploy (PR-04)."
+    def test_360_scalp_divergence_enabled_for_limited_live_by_default(self):
+        """360_SCALP_DIVERGENCE must be enabled for controlled pilot rollout."""
+        cfg = _reload_config_with_env({"CHANNEL_SCALP_DIVERGENCE_ENABLED": "true"})
+        assert cfg.CHANNEL_SCALP_DIVERGENCE_ENABLED is True, (
+            "360_SCALP_DIVERGENCE is the PR-5 narrow pilot path and must remain "
+            "enabled for limited-live rollout unless explicitly rolled back."
         )
 
     def test_360_scalp_orderblock_disabled_by_default(self):
@@ -85,15 +86,15 @@ class TestAuxiliaryChannelsDisabledByDefault:
             "is under governance review and not yet trusted for redeploy (PR-04)."
         )
 
-    def test_all_three_auxiliary_channels_default_to_false(self):
-        """All three under-review auxiliary channels must share the same off default."""
+    def test_auxiliary_defaults_are_selective_not_blanket_enabled(self):
+        """Only divergence pilot is enabled; other specialist channels remain disabled."""
         cfg = _reload_config_with_env({
             "CHANNEL_SCALP_FVG_ENABLED": "false",
-            "CHANNEL_SCALP_DIVERGENCE_ENABLED": "false",
+            "CHANNEL_SCALP_DIVERGENCE_ENABLED": "true",
             "CHANNEL_SCALP_ORDERBLOCK_ENABLED": "false",
         })
         assert cfg.CHANNEL_SCALP_FVG_ENABLED is False
-        assert cfg.CHANNEL_SCALP_DIVERGENCE_ENABLED is False
+        assert cfg.CHANNEL_SCALP_DIVERGENCE_ENABLED is True
         assert cfg.CHANNEL_SCALP_ORDERBLOCK_ENABLED is False
 
 
@@ -127,12 +128,12 @@ class TestCoreTrustedChannelsRemainActive:
             "360_SCALP must be enabled in the scanner's channel flag map."
         )
 
-        # Auxiliary governance-review channels must be off
+        # FVG/ORDERBLOCK remain disabled by default; DIVERGENCE is pilot-enabled.
         assert flags.get("360_SCALP_FVG") is False, (
             "360_SCALP_FVG must be disabled in scanner channel flags (PR-04)."
         )
-        assert flags.get("360_SCALP_DIVERGENCE") is False, (
-            "360_SCALP_DIVERGENCE must be disabled in scanner channel flags (PR-04)."
+        assert flags.get("360_SCALP_DIVERGENCE") is True, (
+            "360_SCALP_DIVERGENCE must be enabled in scanner channel flags for PR-5 pilot."
         )
         assert flags.get("360_SCALP_ORDERBLOCK") is False, (
             "360_SCALP_ORDERBLOCK must be disabled in scanner channel flags (PR-04)."
@@ -206,10 +207,9 @@ class TestGovernanceDoctrineRuntimeAlignment:
     # Channels that should be live by default under the current governance doctrine
     TRUSTED_DEFAULT_ON: frozenset[str] = frozenset({"360_SCALP"})
 
-    # Auxiliary channels that must be off by default (under governance review)
+    # Auxiliary channels that remain off by default (under governance review)
     GOVERNANCE_REVIEW_OFF: frozenset[str] = frozenset({
         "360_SCALP_FVG",
-        "360_SCALP_DIVERGENCE",
         "360_SCALP_ORDERBLOCK",
     })
 

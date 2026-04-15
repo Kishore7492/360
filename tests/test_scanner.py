@@ -914,19 +914,20 @@ class TestRegimeStabilityTracker:
 class TestPR3GovernanceRuntimeRoles:
     """PR-3 governance/runtime truth and volatile contradiction cleanup."""
 
-    def test_runtime_role_distinguishes_paid_vs_disabled_defaults(self):
+    def test_runtime_role_distinguishes_paid_vs_limited_live_specialist(self):
         scanner = _make_scanner()
         assert scanner._classify_channel_runtime_role("360_SCALP") == "runtime_active_paid"
-        assert scanner._classify_channel_runtime_role("360_SCALP_FVG") == "intentionally_disabled"
+        assert (
+            scanner._classify_channel_runtime_role("360_SCALP_DIVERGENCE")
+            == "specialist_limited_live"
+        )
 
-    def test_runtime_role_marks_disabled_channel_as_radar_only_when_callback_wired(self):
+    def test_runtime_role_marks_radar_only_channel_explicitly(self):
         scanner = _make_scanner()
-        scanner.on_radar_candidate = AsyncMock()
         assert scanner._classify_channel_runtime_role("360_SCALP_FVG") == "radar_only"
 
-    def test_runtime_role_does_not_mark_non_radar_channel_as_radar_only(self):
+    def test_runtime_role_marks_non_rollout_specialist_as_intentionally_disabled(self):
         scanner = _make_scanner()
-        scanner.on_radar_candidate = AsyncMock()
         assert scanner._classify_channel_runtime_role("360_SCALP_CVD") == "intentionally_disabled"
 
     def test_governance_snapshot_exposes_default_and_runtime_truth(self):
@@ -936,8 +937,132 @@ class TestPR3GovernanceRuntimeRoles:
         assert snapshot["360_SCALP"]["config_default_enabled"] is True
         assert snapshot["360_SCALP"]["runtime_enabled"] is True
         assert snapshot["360_SCALP"]["runtime_role"] == "runtime_active_paid"
+        assert snapshot["360_SCALP"]["rollout_state"] == "full_live"
         assert snapshot["360_SCALP_FVG"]["config_default_enabled"] is False
         assert snapshot["360_SCALP_FVG"]["runtime_enabled"] is False
+        assert snapshot["360_SCALP_FVG"]["rollout_state"] == "radar_only"
+        assert snapshot["360_SCALP_DIVERGENCE"]["runtime_enabled"] is True
+        assert snapshot["360_SCALP_DIVERGENCE"]["rollout_state"] == "limited_live"
+        assert snapshot["360_SCALP_DIVERGENCE"]["limited_live_pilot_symbols"] == [
+            "BTCUSDT",
+            "ETHUSDT",
+        ]
+
+    def test_rollout_state_fail_closes_for_unknown_values(self):
+        scanner = _make_scanner()
+        with patch.dict(
+            "src.scanner.CHANNEL_ROLLOUT_STATE_DEFAULTS",
+            {"360_SCALP_FVG": "invalid_state"},
+            clear=False,
+        ):
+            assert scanner._resolve_channel_rollout_state("360_SCALP_FVG") == "disabled"
+
+    def test_rollout_states_have_distinct_live_and_radar_semantics(self):
+        scanner = _make_scanner()
+        with patch.dict(
+            "src.scanner.CHANNEL_ROLLOUT_STATE_DEFAULTS",
+            {
+                "360_SCALP_FVG": "radar_only",
+                "360_SCALP_DIVERGENCE": "limited_live",
+                "360_SCALP": "full_live",
+                "360_SCALP_CVD": "disabled",
+            },
+            clear=False,
+        ):
+            assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP", "BTCUSDT") is True
+            assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_DIVERGENCE", "BTCUSDT") is True
+            assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_DIVERGENCE", "SOLUSDT") is False
+            assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_FVG", "BTCUSDT") is False
+            assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_CVD", "BTCUSDT") is False
+            assert scanner._is_radar_rollout_enabled("360_SCALP_FVG", "BTCUSDT") is True
+            assert scanner._is_radar_rollout_enabled("360_SCALP_DIVERGENCE", "SOLUSDT") is True
+            assert scanner._is_radar_rollout_enabled("360_SCALP_DIVERGENCE", "BTCUSDT") is False
+            assert scanner._is_radar_rollout_enabled("360_SCALP", "BTCUSDT") is False
+            assert scanner._is_radar_rollout_enabled("360_SCALP_CVD", "BTCUSDT") is False
+
+    def test_limited_live_rollout_is_narrow_and_reversible(self):
+        scanner = _make_scanner()
+        assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_DIVERGENCE", "BTCUSDT") is True
+        assert scanner._is_live_rollout_enabled_for_symbol("360_SCALP_DIVERGENCE", "SOLUSDT") is False
+        with patch.dict(
+            "src.scanner.CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS",
+            {"360_SCALP_DIVERGENCE": frozenset()},
+            clear=False,
+        ):
+            assert (
+                scanner._is_live_rollout_enabled_for_symbol("360_SCALP_DIVERGENCE", "BTCUSDT")
+                is False
+            )
+
+    def test_no_blanket_specialist_full_live_activation(self):
+        scanner = _make_scanner()
+        snapshot = scanner._channel_governance_snapshot()
+        specialist_live = [
+            ch
+            for ch, meta in snapshot.items()
+            if meta["product_role"] == "specialist" and meta["rollout_live_enabled"]
+        ]
+        assert specialist_live == ["360_SCALP_DIVERGENCE"]
+
+    def test_rollout_exclusion_counter_tracks_limited_live_non_pilot(self):
+        scanner = _make_scanner()
+        scanner._record_rollout_live_exclusion("360_SCALP_DIVERGENCE", "SOLUSDT")
+        assert (
+            scanner._channel_funnel_counters[
+                "rollout_excluded:live:limited_live:360_SCALP_DIVERGENCE"
+            ]
+            == 1
+        )
+        assert (
+            scanner._channel_funnel_counters[
+                "rollout_excluded:live:limited_live_non_pilot:360_SCALP_DIVERGENCE"
+            ]
+            == 1
+        )
+
+    def test_rollout_exclusion_counter_tracks_non_live_state(self):
+        scanner = _make_scanner()
+        scanner._record_rollout_live_exclusion("360_SCALP_FVG", "BTCUSDT")
+        assert scanner._channel_funnel_counters["rollout_excluded:live:radar_only:360_SCALP_FVG"] == 1
+        assert (
+            scanner._channel_funnel_counters[
+                "rollout_excluded:live:limited_live_non_pilot:360_SCALP_FVG"
+            ]
+            == 0
+        )
+
+    @pytest.mark.asyncio
+    async def test_scan_symbol_emits_rollout_exclusion_for_non_pilot_live_skip(self):
+        chan = MagicMock()
+        chan.config.name = "360_SCALP_DIVERGENCE"
+        chan.evaluate.return_value = None
+        scanner = _make_scanner(
+            channels=[chan],
+            data_store=MagicMock(ticks={"SOLUSDT": []}),
+            pair_mgr=MagicMock(pairs={}),
+        )
+        scanner._build_scan_context = AsyncMock(
+            return_value=SimpleNamespace(
+                candles={},
+                indicators={},
+                smc_data={},
+                spread_pct=0.001,
+                regime_result=SimpleNamespace(regime=SimpleNamespace(value="TRENDING_UP")),
+            ),
+        )
+        scanner._update_btc_correlation = MagicMock()
+        with patch.dict(
+            "src.scanner.CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS",
+            {"360_SCALP_DIVERGENCE": frozenset({"BTCUSDT"})},
+            clear=False,
+        ):
+            await scanner._scan_symbol("SOLUSDT", 10_000_000.0)
+        assert (
+            scanner._channel_funnel_counters[
+                "rollout_excluded:live:limited_live_non_pilot:360_SCALP_DIVERGENCE"
+            ]
+            == 1
+        )
 
     def test_should_not_channel_skip_specialist_in_volatile_unsuitable(self):
         scanner = _make_scanner()
