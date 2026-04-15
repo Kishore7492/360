@@ -804,6 +804,8 @@ CHANNEL_ROLLOUT_STATE_DEFAULTS: Dict[str, str] = {
     "360_SCALP_FVG": _safe_choice(
         "CHANNEL_ROLLOUT_STATE_360_SCALP_FVG", "radar_only", CHANNEL_ROLLOUT_STATES_ALLOWED
     ),
+    # radar_only still works when the CHANNEL_SCALP_ORDERBLOCK_ENABLED env var is false because
+    # the runtime flag override is applied only to live rollout states.
     "360_SCALP_ORDERBLOCK": _safe_choice(
         "CHANNEL_ROLLOUT_STATE_360_SCALP_ORDERBLOCK", "radar_only", CHANNEL_ROLLOUT_STATES_ALLOWED
     ),

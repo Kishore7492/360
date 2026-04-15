@@ -977,6 +977,8 @@ class TestPR3GovernanceRuntimeRoles:
             assert scanner._is_radar_rollout_enabled("360_SCALP_FVG", "BTCUSDT") is True
             assert scanner._is_radar_rollout_enabled("360_SCALP_DIVERGENCE", "SOLUSDT") is True
             assert scanner._is_radar_rollout_enabled("360_SCALP_DIVERGENCE", "BTCUSDT") is False
+            assert scanner._is_radar_rollout_enabled("360_SCALP", "BTCUSDT") is False
+            assert scanner._is_radar_rollout_enabled("360_SCALP_CVD", "BTCUSDT") is False
 
     def test_limited_live_rollout_is_narrow_and_reversible(self):
         scanner = _make_scanner()

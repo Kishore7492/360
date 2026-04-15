@@ -709,6 +709,7 @@ class Scanner:
         _raw = str(CHANNEL_ROLLOUT_STATE_DEFAULTS.get(channel_name, "disabled")).strip().lower()
         if _raw in CHANNEL_ROLLOUT_STATES_ALLOWED:
             # Runtime flag acts as emergency kill-switch for live rollout states.
+            # Missing channel entries intentionally fail-closed to disabled.
             if _raw in {"full_live", "limited_live"} and not _CHANNEL_ENABLED_FLAGS.get(channel_name, False):
                 return "disabled"
             if _raw == "radar_only":

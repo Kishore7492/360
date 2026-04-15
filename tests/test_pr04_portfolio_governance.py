@@ -3,7 +3,9 @@
 Verifies that the active production defaults now match the canonical governance
 doctrine defined in OWNER_BRIEF.md Part VI §6.2:
 
-1. Auxiliary paid-channel paths are governed explicitly by rollout state.
+1. Auxiliary paid-channel paths (360_SCALP_FVG, 360_SCALP_DIVERGENCE,
+   360_SCALP_ORDERBLOCK) are governed explicitly by rollout state, with
+   360_SCALP_DIVERGENCE in limited-live pilot.
 2. Core trusted 360_SCALP internal evaluators remain active.
 3. Runtime routing / scanner initialization matches the governance doctrine.
 4. Auxiliary channel code remains present and callable — the disable is a
