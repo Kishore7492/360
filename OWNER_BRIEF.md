@@ -1,6 +1,6 @@
 # 360 Crypto Eye — Owner Operating Manual
 
-> **Canonical version as of 2026-04-14. This supersedes all prior versions.**
+> **Canonical version as of 2026-04-15. This supersedes all prior versions.**
 > This is the single source of truth for system state, architecture, owner priorities, and how every Copilot session must operate.
 
 ---
@@ -253,84 +253,55 @@ If a better technical action is visible, Copilot surfaces it. If the owner says 
 
 ## Part II — Owner Priorities and System Philosophy
 
-### 2.1 Current Top Priorities (as of 2026-04-14)
+### 2.1 Executive Summary — Current Business Truth (as of 2026-04-15)
 
-1. **WATCHLIST lifecycle fix merged — live verification pending** — the 2026-04-14 investigation confirmed that `WATCHLIST` (`50–64`) signals were entering `_active_signals` and being managed by `TradeMonitor` despite doctrine requiring free-channel-only routing. PR #144 (WATCHLIST lifecycle segregation) and PR #145 (formatter defensive guard) were merged on 2026-04-14. Doctrine/runtime alignment is now correct in code. Fresh Telegram/monitor evidence is required before claiming operational confirmation.
-2. **Strategy-expression integrity — correction pass complete** — the full correction pass (PR-01 through PR-18, all merged) has addressed: evaluator identity, penalties, structural SL/TP, quality-ranked arbitration, gate-policy alignment, auxiliary-channel governance, and `valid_for_minutes` preservation. The 2026-04-14 follow-up (PR #144, PR #145) corrected the remaining WATCHLIST lifecycle admission defect that PR-18 left unresolved at runtime.
-3. **Evidence-gated next action** — after fresh live evidence confirms post-PR #144 behavior, the next likely PR is lifecycle idempotency / duplicate-post hardening. Do not raise that PR until post-merge monitor output is reviewed.
-4. **Signal quality** — every signal fired must represent a genuine institutional-grade setup with correct SMC structural basis, correct family scoring, and correct SL/TP expression.
-5. **Phase 1 scorecard readiness** — formal validation begins only once live output confirms the corrected dispatch path is expressing genuinely qualified signals consistently.
+This brief is now the canonical execution roadmap for the next phase.
 
-### 2.2 Current Owner Doctrine — Post-Correction Monitoring Phase
+- **What is alive:** the engine is running, pair-level analysis is real, and a real paid signal path exists.
+- **What is broken / misaligned:** live expression is too concentrated in a small subset of setup families, downstream suppression is too generic in critical places, and SL/TP geometry handling still shows repeated cap/reject friction patterns.
+- **Why this roadmap exists now:** the multi-model runtime-truth audits (GPT-5.3-Codex, GPT-5.4, Claude Opus 4.6) converge on the same business risk: expression diversity and geometry integrity are not yet at required production quality.
+- **What matters next:** recover valid multi-family expression **without** global loosening, preserve protection, remove avoidable geometry distortion, and make path-level runtime truth decisively observable.
 
-The engine has a **strong core** and has now undergone a complete architecture-correction and governance-correction pass. The 2026-04-11 audit established the canonical doctrine; the 2026-04-12 dual-audit deepened the diagnosis; the 2026-04-13 zero-signal diagnosis audit confirmed the root causes; the 2026-04-14 live-signal-expression investigation confirmed a residual WATCHLIST lifecycle admission defect and produced the canonical verdict.
+### 2.2 Current Owner Doctrine — Requirements-First and Reality-First
 
-## **Strategy-expression integrity correction pass: complete (PR-01 through PR-18 merged)**
+This doctrine is non-negotiable for all upcoming PRs:
 
-The canonical truths established by the 2026-04-11 audit are now addressed:
-- evaluator identity is preserved downstream (PR-01)
-- evaluator-authored soft penalties survive end-to-end (PR-01, PR-15)
-- top-tier structural SL/TP intent is preserved (PR-02, PR-14)
-- same-direction `360_SCALP` arbitration is now quality-ranked, not order-biased (PR-03)
-- auxiliary paid-channel paths are disabled by default (PR-04)
-- gate-policy mismatches are corrected for TREND_PULLBACK_EMA, WHALE_MOMENTUM, FAILED_AUCTION_RECLAIM (PR-05)
-- OPENING_RANGE_BREAKOUT is disabled from the trusted production portfolio (PR-06)
-- `valid_for_minutes` is preserved from the evaluator rather than overwritten (PR-17)
-- WHALE_MOMENTUM is hard-blocked in QUIET regime (PR-16)
-- B-tier dead zone resolved and `360_SCALP` tier dispatch corrected (PR-18); WATCHLIST lifecycle admission defect confirmed by 2026-04-14 investigation and fully fixed by PR #144 (2026-04-14)
+1. **Pair-first market truth:** pair-local structure is primary truth at runtime.
+2. **BTC/global is context, not market-definition engine:** macro context can modulate risk/aggressiveness; it cannot replace pair-local thesis.
+3. **Hybrid architecture is required:** pair-level generation with context overlays; never pure global flattening.
+4. **Setup-family integrity is mandatory:** family-aware gating must protect thesis diversity; one-size-fits-all suppression is a defect.
+5. **Evaluator-owned invalidation is non-negotiable (B13):** SL/TP must preserve evaluator thesis unless explicit safety rejection is required.
+6. **Requirements first, codebase secondary:** the repository shows current implementation, not final requirement truth.
+7. **Valid expression > raw signal count:** business KPI is trusted expression diversity and paid signal quality, not inflated alert volume.
 
-The **current phase is post-correction live monitoring**. The engine's governance and dispatch architecture are aligned. The remaining question is whether corrected dispatch produces live signal output at acceptable rate under current market conditions, or whether a further targeted intervention (most likely: family-aware MTF gate refinement) is still needed.
+Primary evidence set for this doctrine refresh:
+- `monitor/latest.txt` on `monitor-logs`
+- `docs/AUDIT_RUNTIME_TRUTH_SIGNAL_PATHS_RISK_GEOMETRY_GPT-5.3-CODEX.md`
+- `docs/AUDIT_RUNTIME_TRUTH_SIGNAL_PATHS_RISK_GEOMETRY_GPT-5.4.md`
+- `docs/AUDIT_RUNTIME_TRUTH_SIGNAL_PATHS_RISK_GEOMETRY_CLAUDE-OPUS-4.6.md`
 
-Two independent diagnosis audits have been documented for 2026-04-13:
-- `docs/AUDIT_2026-04-13_ZERO_SIGNAL_DIAGNOSIS_GPT-5.4.md` — root-cause analysis of live suppression funnel
-- `docs/AUDIT_2026-04-13_ZERO_SIGNAL_EXECUTION_PLAN_GPT-5.3-Codex.md` — execution prioritization and sequencing
+### 2.3 Current Runtime Reality — Business Translation
 
-Three independent audit reports and a canonical synthesis were created for the 2026-04-14 WATCHLIST investigation:
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_GPT-5.4.md`
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_GPT-5.3-CODEX.md`
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_CLAUDE-OPUS-4.6.md`
-- `docs/AUDIT_2026-04-14_REPORT_COMPARISON_AND_CANONICAL_VERDICT.md` — canonical verdict establishing WATCHLIST lifecycle admission as the primary confirmed defect
+Runtime truth for the current phase:
 
-This is **not** a dead-infrastructure incident. The main current suppressors are spread-quality rejection (market conditions), MTF gating (potentially over-generic), and quiet-regime floor filtering.
+- The engine is alive and scanning continuously.
+- Pair-level runtime analysis exists and is not fake/offline-only.
+- Expression remains concentrated: only a small subset of setup families is confirmed live in current history.
+- Generic suppressors dominate key funnel stages (spread quality, MTF on active path, quiet floor behavior, generic scoring attrition).
+- MTF is a major active suppressor for `360_SCALP`.
+- Auxiliary/runtime governance truth must be separated from config-default truth at all times.
+- Repeated SL cap / near-zero / FVG rejection patterns indicate geometry friction and partial downstream distortion risk.
+- Conclusion: runtime is partially aligned with intended architecture, not fully aligned.
 
-### 2.3 Current Official Deploy Judgment
+### 2.4 Strategic Objective for the Next Phase
 
-- A fresh VPS reinstall is **not** success by itself.
-- Only a trustworthy engine should be redeployed.
-- The correction pass mandated by the 2026-04-11 audit is now **complete** (PR-01 through PR-18 all merged as of 2026-04-13).
-- The engine is running on VPS; live output is being observed post-PR-18.
+The next mission is:
 
-## **Do not claim successful live recovery until live monitor evidence confirms it**
-
-The dispatch architecture is now correctly aligned. Whether this produces sustained live signal output under real market conditions must be confirmed by observing the live monitor. The immediate next action is to check post-PR-18 monitor output and determine whether MTF gating remains the dominant suppressor before deciding on further changes.
-
-### 2.4 Current Portfolio Position Doctrine
-
-This portfolio grouping is now canonical and governs how future work is judged:
-
-**Strongest foundation paths**
-- `FAILED_AUCTION_RECLAIM`
-- `CONTINUATION_LIQUIDITY_SWEEP`
-- `SR_FLIP_RETEST`
-- `TREND_PULLBACK_EMA`
-- `POST_DISPLACEMENT_CONTINUATION`
-
-**Strong secondary / support layer**
-- `VOLUME_SURGE_BREAKOUT`
-- `BREAKDOWN_SHORT`
-- `LIQUIDATION_REVERSAL`
-- `QUIET_COMPRESSION_BREAK`
-
-**Conditional / under-review layer**
-- `DIVERGENCE_CONTINUATION`
-- `FUNDING_EXTREME_SIGNAL`
-- `WHALE_MOMENTUM`
-
-**Active-by-default paths that should be disabled unless rebuilt or fully integrated**
-- `FVG_RETEST`
-- `RSI_MACD_DIVERGENCE`
-- `SMC_ORDERBLOCK`
-- `OPENING_RANGE_BREAKOUT` unless rebuilt with true session-opening-range logic
+1. Restore valid multi-family expression on the active engine.
+2. Preserve protective gates and anti-noise discipline.
+3. Eliminate avoidable downstream distortion in SL/TP geometry handling.
+4. Improve paid signal quality and signal survivability by family.
+5. Establish decisive end-to-end path observability so future changes are evidence-led, not assumption-led.
 
 ### 2.5 Quality Bar
 
@@ -411,18 +382,18 @@ Binance WS / REST
 
 | Channel | Status | Purpose |
 |---|---|---|
-| 360_SCALP | Active (paid) | Main scalp channel — all 14 internal evaluation paths |
-| 360_SCALP_FVG | Active by default (paid, under review) | Fair Value Gap retests |
-| 360_SCALP_ORDERBLOCK | Active by default (paid, under review) | SMC order block bounces |
-| 360_SCALP_DIVERGENCE | Active by default (paid, under review) | RSI/MACD divergence reversals |
-| 360_SCALP_CVD | Radar (free) | Free channel alerts at conf >= 65 |
-| 360_SCALP_VWAP | Radar (free) | Free channel alerts at conf >= 65 |
-| 360_SCALP_SUPERTREND | Radar (free) | Free channel alerts at conf >= 65 |
-| 360_SCALP_ICHIMOKU | Radar (free) | Free channel alerts at conf >= 65 |
+| 360_SCALP | Runtime-active (paid) | Main active paid channel — all 14 internal evaluation paths |
+| 360_SCALP_FVG | Config-default disabled | Specialist FVG retests (candidate source; governance-controlled) |
+| 360_SCALP_ORDERBLOCK | Config-default disabled | Specialist orderblock path (governance-controlled) |
+| 360_SCALP_DIVERGENCE | Config-default disabled | Specialist divergence path (governance-controlled) |
+| 360_SCALP_CVD | Config-default disabled | Specialist order-flow path (role decided by governance) |
+| 360_SCALP_VWAP | Config-default disabled | Specialist mean/reclaim path (role decided by governance) |
+| 360_SCALP_SUPERTREND | Config-default disabled | Specialist trend filter path (role decided by governance) |
+| 360_SCALP_ICHIMOKU | Config-default disabled | Specialist structure/trend path (role decided by governance) |
 
 **Permanently removed:** 360_SPOT, 360_GEM, 360_SWING (out of scope indefinitely), 360_SCALP_OBI (REST depth fetches caused structural scan latency — removed permanently).
 
-**Canonical production-governance note:** active-by-default does not mean trusted for redeploy. `360_SCALP_FVG`, `360_SCALP_DIVERGENCE`, and `360_SCALP_ORDERBLOCK` remain outside the trusted pre-redeploy portfolio unless fully integrated or disabled.
+**Canonical production-governance note:** config-default status is not sufficient runtime truth. All channel-role decisions must be documented as runtime-active paid / specialist paid / radar-only / intentionally disabled, and validated against live monitor evidence.
 
 ### 3.4 Signal Evaluators — 14 Internal `360_SCALP` Paths Active
 
@@ -655,171 +626,193 @@ Every SL hit is categorised: setup was wrong / regime changed after entry / stop
 
 ## Part VI — Roadmap From Here
 
-### 6.1 Current Direction — Post-Correction Live Monitoring
+### 6.1 Canonical Next-Phase Roadmap Decision
 
-**The correction pass is complete.** The engine has undergone two full correction sequences (core architecture correction ARCH-2 through ARCH-10, then pre-redeploy expression/governance correction PR-01 through PR-09, then post-audit follow-up PR-10 through PR-18). The current direction is:
+This section is the canonical execution plan for the next implementation phase.
 
-## **Observe live monitor post-PR-18; take next action only from live evidence**
+- Order is mandatory.
+- Each PR has a defined scope, explicit non-scope, evidence basis, and validation gate.
+- We do not lower requirements to fit current implementation; we change implementation to meet runtime/business truth.
 
-Copilot is responsible for the following without being prompted:
-- Read monitor-logs output at each session start — confirm scan latency, evaluator output, and error patterns
-- After PR-18: confirm whether B-tier candidates are now dispatching and whether WATCHLIST handling is now preserved as intended through the router
-- Identify whether MTF gating remains the dominant paid-channel suppressor after the dispatch correction
-- If dominant suppression shifts or confirms as MTF-gate-related, propose targeted family-aware MTF refinement with evidence
-- Do not take speculative actions — the next PR must be justified by live monitor evidence
-- Flag any discrepancy between expected and actual path expression
+### 6.2 Ordered PR Plan (Authoritative Sequence)
 
-### 6.2 Completed — Pre-Redeploy Correction Roadmap (all merged, 2026-04-11)
+#### PR-1 — Family-aware gate refinement for active `360_SCALP`
 
-This ordered PR sequence was completed on 2026-04-11. All items are merged and canonical.
+**Type:** architecture + doctrine correction  
+**Why first:** expression recovery must happen first on the already-active engine before widening scope elsewhere.
 
-#### 1. ✅ **PR-00 — Owner brief and governance update** (PR #110, merged 2026-04-11)
-- **Purpose:** make the audit findings canonical in the owner brief and governance doctrine.
-- **Business problem it solves:** removes stale operating assumptions that would otherwise treat redeploy as validation of an already-correct live engine.
-- **Why this position mattered:** governance must change first so every later correction is judged against the correct business truth.
+**What this PR is**
+- Refine generic suppressors in the active main path with family-aware policy, especially MTF behavior.
+- Implement family-aware downstream policy for quiet/confidence behavior where appropriate.
 
-#### 2. ✅ **PR-01 — Preserve evaluator identity, penalties, and path metadata** (PR #111, merged 2026-04-11)
-- **Purpose:** preserve evaluator-authored setup identity, soft penalties, and path metadata through the scanner and dispatch pipeline.
-- **Business problem it solves:** prevents strong paths from being misclassified, under-penalized, or governed as if they were different strategies.
-- **Why this position mattered:** downstream truth-preservation is the foundation for every later correction; SL/TP, arbitration, and portfolio governance all depend on correct identity first.
+**What it should change**
+- MTF logic for `360_SCALP` so trend-following and reversal/structure families are not treated as identical.
+- Downstream confidence/quiet handling to preserve valid setups by family rather than flattening them.
+- Keep spread/quality protection active while reducing avoidable family mismatch suppression.
 
-#### 3. ✅ **PR-02 — Preserve structural SL/TP intent for top-tier paths** (PR #112, merged 2026-04-11)
-- **Purpose:** stop downstream risk-plan / predictive rewriting from distorting evaluator-designed structural stops and targets on the strongest paths.
-- **Business problem it solves:** prevents live trades from expressing weaker generic risk geometry than the evaluator thesis intended.
-- **Why this position mattered:** once identity is preserved, the next priority is preserving actual trade expression for the paths most worth trusting.
+**What it should explicitly not do**
+- No global loosening of quality thresholds.
+- No blanket reductions to confidence floors for all families.
+- No blanket auxiliary-channel re-enable.
 
-#### 4. ✅ **PR-03 — Replace order-biased same-direction dedup with quality-ranked arbitration** (PR #113, merged 2026-04-11)
-- **Purpose:** evaluate same-direction `360_SCALP` candidates fairly and keep the best one by scored quality rather than by method order.
-- **Business problem it solves:** stops mediocre earlier candidates from suppressing better later ones, improving signal trust and portfolio quality.
-- **Why this position mattered:** arbitration must happen after identity and scoring inputs are trustworthy, otherwise the ranking logic would still compare distorted candidates.
+**Evidence**
+- Repeated `mtf_gate:360_SCALP` as a major active suppressor in runtime audits and monitor evidence.
+- Live expression concentration in a narrow subset of families.
 
-#### 5. ✅ **PR-04 — Align active production portfolio with formal setup taxonomy** (PR #114, merged 2026-04-11)
-- **Purpose:** bring active defaults, setup taxonomy, and portfolio-role governance into explicit alignment.
-- **Business problem it solves:** removes the current state where auxiliary paths are live by default but absent from the formal portfolio doctrine.
-- **Why this position mattered:** portfolio governance should be corrected only after candidate identity and arbitration logic are reliable enough to classify paths honestly.
+**Success / validation**
+- Increased expression diversity by setup family on active channel.
+- Reduced MTF rejection rate for targeted families without broad quality collapse.
+- No degradation in paid-channel quality metrics.
 
-#### 6. ✅ **PR-05 — Correct gate-policy mismatches** (PR #115, merged 2026-04-11)
-- **Purpose:** fix path-family gate mismatches that overblock or mis-handle valid evaluator theses (TREND_PULLBACK_EMA, WHALE_MOMENTUM, FAILED_AUCTION_RECLAIM).
-- **Business problem it solves:** prevents strong paths from being suppressed by gates that do not match their actual strategy logic.
-- **Why this position mattered:** gate correction belongs after taxonomy alignment so exemptions and rules are applied to the right preserved identities.
+#### PR-2 — SL/TP geometry integrity hardening
 
-#### 7. ✅ **PR-06 — Disable `OPENING_RANGE_BREAKOUT` from trusted portfolio** (PR #116, merged 2026-04-11)
-- **Purpose:** remove `OPENING_RANGE_BREAKOUT` from the active portfolio until it can be rebuilt with true session opening-range logic.
-- **Business problem it solves:** eliminates the weakest active path from distorting live quality standards and portfolio trust.
-- **Why this position mattered:** the engine should first fix systemic integrity defects before deciding whether this path earns a place in the governed active portfolio.
+**Type:** geometry + architecture integrity  
+**Why second:** once valid candidates flow better, geometry handling must stop avoidable downstream distortion.
 
-#### 8. ✅ **PR-07 — Improve specialist-path quality** (PR #117, merged 2026-04-11)
-- **Purpose:** refine weaker specialist/support paths whose raw ideas are still useful but whose current live expression is not strong enough (FUNDING_EXTREME_SIGNAL TP1 + WHALE_MOMENTUM SL).
-- **Business problem it solves:** improves the quality floor of secondary paths without diluting focus away from the strongest foundation paths.
-- **Why this position mattered:** specialist refinement should follow the systemic fixes and the `OPENING_RANGE_BREAKOUT` decision so effort is spent on paths that still belong in the active set.
+**What this PR is**
+- Harden SL/TP preservation and validation so evaluator-owned invalidation survives downstream controls.
 
-#### 9. ✅ **PR-08 — Align `DIVERGENCE_CONTINUATION` scoring with evaluator evidence** (PR #118, merged 2026-04-11)
-- **Purpose:** make `DIVERGENCE_CONTINUATION` scoring reflect the evaluator's real divergence evidence rather than an incomplete downstream proxy.
-- **Business problem it solves:** prevents a legitimate conditional path from being under-modeled and misjudged in live production.
-- **Why this position mattered:** this is a targeted path-level scoring correction best handled after broader specialist-path cleanup clarifies what remains worth preserving.
+**What it should change**
+- Re-validate geometry after predictive adjustment (when predictive layer modifies distances).
+- Replace universal near-zero floor with adaptive symbol/price-aware floor doctrine.
+- Move toward per-family SL cap doctrine instead of pure universal channel caps.
+- Add geometry delta telemetry (evaluator-authored vs final-live geometry; reject/cap reasons by family).
 
-#### 10. ✅ **PR-09 — Cleanup / residual architecture polish** (PR #119, merged 2026-04-11)
-- **Purpose:** resolve residual inconsistencies left after the main correction pass, including cleanup and remaining architectural polish.
-- **Business problem it solves:** removes lingering friction that could otherwise reintroduce ambiguity after redeploy.
-- **Why this position mattered:** cleanup belongs last so it follows the substantive business-critical corrections rather than distracting from them.
+**What it should explicitly not do**
+- No removal of protective SL sanity checks.
+- No conversion to fully unbounded SL.
+- No one-shot global cap deletion.
 
-### 6.3 Completed — Post-Audit Correction Roadmap (all merged, 2026-04-12 to 2026-04-13)
+**Evidence**
+- Repeated SL cap / near-zero / FVG rejection warning patterns in runtime monitor evidence.
+- Audit convergence that current geometry handling is protective but partially distortive.
 
-This sequence was triggered by the 2026-04-12 dual-audit findings and the 2026-04-13 zero-signal diagnosis audit. All items are merged.
+**Success / validation**
+- Lower avoidable geometry reject/cap rates by family.
+- Reduced stop-too-tight continuation-pattern incidence.
+- Improved MFE/hold characteristics without uncontrolled risk expansion.
 
-| PR | GitHub | Title | Merged |
-|---|---|---|---|
-| PR-10 | #122 | Per-setup-class scoring tier telemetry | 2026-04-12 |
-| PR-11 | #123 | LIQUIDATION_REVERSAL Fibonacci retrace TP + structural protection (B13) | 2026-04-12 |
-| PR-12 | #124 | WHALE_MOMENTUM evaluator-owned TP targets (B13) | 2026-04-12 |
-| PR-13 | #125 | DIVERGENCE_CONTINUATION swing-based TP targets + structural protection (B13) | 2026-04-12 |
-| — | #126 | Heartbeat path mismatch fix (engine unhealthy despite running) | 2026-04-13 |
-| PR-14 | #127 | Remove RANGE_FADE dead code + FUNDING_EXTREME_SIGNAL SL/TP protection | 2026-04-13 |
-| PR-15 | #129 | Fix evaluator soft-penalty not applied post-scoring; fix stale tier in floor gates | 2026-04-13 |
-| PR-16 | #130 | Hard-block WHALE_MOMENTUM in QUIET regime | 2026-04-13 |
-| PR-17 | #128 | Preserve evaluator-authored `valid_for_minutes` through scanner pipeline | 2026-04-13 |
-| PR-18 | #133 | Align `360_SCALP` tier semantics with actual dispatch (A+/B/WATCHLIST); `MIN_CONFIDENCE_SCALP` 80→65 | 2026-04-13 |
+#### PR-3 — Auxiliary channel governance and volatile pre-skip contradiction cleanup
 
-Two diagnostic audit documents now exist in `docs/` for the 2026-04-13 investigation:
-- `docs/AUDIT_2026-04-13_ZERO_SIGNAL_DIAGNOSIS_GPT-5.4.md` — root-cause analysis confirming mixed market/architecture suppression
-- `docs/AUDIT_2026-04-13_ZERO_SIGNAL_EXECUTION_PLAN_GPT-5.3-Codex.md` — execution sequencing and prioritization that led to PR-18
+**Type:** governance + doctrine alignment  
+**Why third:** core active path and geometry should be stabilized first; only then normalize auxiliary governance logic.
 
-### 6.3.1 Completed — 2026-04-14 WATCHLIST Lifecycle Correction (all merged, 2026-04-14)
+**What this PR is**
+- Cleanly separate runtime-active truth from config-default truth.
+- Remove contradictory whole-channel volatile pre-skip behavior where family logic should decide.
+- Formalize channel product roles: paid / specialist / radar / disabled.
 
-The 2026-04-14 live-signal-expression investigation confirmed that WATCHLIST (`50–64`) signals were entering `_active_signals` and being managed by `TradeMonitor` despite doctrine requiring free-channel-only routing. Three independent audit reports were synthesised into a canonical verdict, then two PRs were merged.
+**What it should change**
+- Introduce explicit runtime role reporting for each channel.
+- Align volatile handling with family-aware policy instead of broad contradictory pre-skip where inappropriate.
+- Make governance states audit-visible and operationally explicit.
 
-| PR | GitHub | Title | Merged |
-|---|---|---|---|
-| — | #144 | fix: segregate WATCHLIST 360_SCALP signals from paid active lifecycle | 2026-04-14 |
-| — | #145 | fix: defensive entry guard in `_format_watchlist_preview` for zero-price edge case | 2026-04-14 |
+**What it should explicitly not do**
+- No blanket “enable everything” move.
+- No paid promotion of channels without role definition and evidence.
 
-Four audit documents were created in `docs/` for the 2026-04-14 investigation:
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_GPT-5.4.md`
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_GPT-5.3-CODEX.md`
-- `docs/AUDIT_2026-04-14_LIVE_SIGNAL_EXPRESSION_INVESTIGATION_CLAUDE-OPUS-4.6.md`
-- `docs/AUDIT_2026-04-14_REPORT_COMPARISON_AND_CANONICAL_VERDICT.md` — canonical verdict
+**Evidence**
+- Audit findings: governance truth vs runtime truth ambiguity and volatile pre-skip contradictions.
+- Monitor evidence shows suppressor activity on channels whose role clarity is inconsistent.
 
-### 6.4 Formal Pre-Redeploy Gate — Status
+**Success / validation**
+- Clear per-channel runtime truth report (active role and purpose).
+- Reduced governance contradictions in suppressor telemetry.
+- No paid quality dilution from mis-governed channel activation.
 
-The gate items from the 2026-04-11 audit are now all satisfied:
-- ✅ evaluator identity is preserved (PR-01)
-- ✅ evaluator penalties are preserved end-to-end (PR-01, PR-15)
-- ✅ top-tier structural SL/TP intent is preserved (PR-02, PR-14)
-- ✅ same-direction arbitration is quality-based (PR-03)
-- ✅ auxiliary active paths are disabled by default (PR-04)
-- ✅ gate mismatches are corrected (PR-05)
-- ✅ `OPENING_RANGE_BREAKOUT` is disabled from the trusted portfolio (PR-06)
+#### PR-4 — End-to-end path observability
 
-The remaining open question is whether the corrected dispatch architecture produces sustained live signal output under real market conditions. That is a live-monitoring question, not a code-correctness question.
+**Type:** observability infrastructure  
+**Why fourth:** after policy and geometry corrections, full path telemetry is required to prevent reintroducing silent-path uncertainty.
 
-### 6.5 Next Likely Action — Lifecycle Idempotency / Duplicate-Post Hardening (Evidence-Gated)
+**What this PR is**
+- Build decisive path-level telemetry from generation through outcome.
 
-The 2026-04-14 canonical audit confirmed that duplicate lifecycle posting is real but was the second identified defect, not the first. With PR #144 (WATCHLIST lifecycle segregation) now merged, the next likely PR is lifecycle idempotency / duplicate-post hardening.
+**What it should change**
+- Per-path counters for: generated → gated → scored → emitted → lifecycle outcome.
+- Explicit geometry change/reject tracking by setup family.
+- Runtime reporting that separates “no candidate generated” from “candidate blocked downstream.”
 
-**This PR is NOT approved yet.** It must be gated on fresh post-PR #144 live monitor evidence confirming WATCHLIST contamination is removed from paid lifecycle output.
+**What it should explicitly not do**
+- No behavior-changing policy relaxations disguised as observability work.
+- No KPI inflation by dropping strict filters silently.
 
-Do not raise this PR until:
-- post-PR #144 Telegram/monitor evidence is reviewed
-- WATCHLIST no longer appears in paid lifecycle events (TP HIT, SL HIT, INVALIDATED, expiry posts)
-- duplicate terminal-event behavior is observed and confirmed as the dominant remaining defect
+**Evidence**
+- Audit convergence that runtime truth is still under-observed in some path-level areas.
 
-If evidence confirms the duplicate-post pattern, the correction would add idempotency guards to terminal lifecycle event handling (SL, invalidation, expiry) so that `_remove()` runs safely even if `_post_update` throws, preventing re-fire on next poll cycle.
+**Success / validation**
+- Silent-path uncertainty materially reduced.
+- Every major suppression claim traceable to path/family evidence.
 
-**Previous §6.5 note (MTF gate refinement):** the generic scanner MTF gating (`mtf_gate:360_SCALP`, peaking at ~14/cycle) identified in the 2026-04-13 audit remains a known candidate for future action but is no longer the immediate next item. It should be re-assessed from post-PR #144 telemetry after the lifecycle idempotency fix is evaluated.
+#### PR-5 — Controlled expansion / reactivation plan
 
-### 6.6 Future Enhancement — Intelligence Layer
+**Type:** controlled expansion + governance execution  
+**Why fifth:** expansion only after funnel and geometry become trustworthy.
 
-**Gate: raise only after the Phase 1–2 signal-engine path sequence is complete and 2+ weeks of live path data are available.**
+**What this PR is**
+- Cautious reactivation/refinement of specialist paths/channels based on evidence from PR-1..PR-4 telemetry.
 
-Scope:
-- Symbol-specific PairProfile overrides (PAIR_OVERRIDES dict in config)
-- Wire unused PairProfile fields into channel evaluators (rsi_ob/os_level, spread_max_mult, volume_min_mult, adx_min_mult)
-- Rolling BTC correlation per pair (50-candle + 200-candle Pearson) — replaces permanently dead btc_correlation=0.0
-- Graduated cross-asset filter by actual per-pair correlation strength
-- Per-pair x regime confidence offsets
-- Extended performance metrics (Sharpe ratio, profit factor, expectancy, MFE/MAE per signal)
+**What it should change**
+- Selective reactivation or rebuild of specialist channels with explicit gates and success criteria.
+- Evidence-based rollout steps with rollback guardrails.
 
-### 6.7 Future Enhancement — Self-Optimisation
+**What it should explicitly not do**
+- No blanket re-enable of all disabled channels.
+- No quantity-first push for raw signal count.
 
-**Gate: raise only after 50+ live signals exist in performance history.**
+**Evidence**
+- Current concentrated expression profile and governance constraints.
+- Requirement to recover diversity without sacrificing paid quality.
 
-Scope:
-- Per-evaluator win rate tracking by regime
-- Auto-disable evaluator if win rate < 50% over a 30-day rolling window
-- Auto-weight evaluators by live performance data
-- SL placement using nearest liquidity cluster rather than fixed formula
+**Success / validation**
+- Broader family expression with stable/acceptable paid outcomes.
+- Expansion decisions justified by telemetry, not assumptions.
 
-### 6.8 Ongoing — Observability and Monitoring
+### 6.3 KPI / Validation Framework (Required for PR-1..PR-5)
 
-The VPS Monitor workflow (GitHub Actions → monitor-logs branch) gives Copilot autonomous read access to live system state. Copilot reads monitor output proactively at session start and raises any issues found without waiting to be asked.
+All roadmap PRs are judged against these KPIs:
 
-If monitor data is unavailable or stale, Copilot flags this to the owner immediately — stale observability is itself a system issue.
+1. Expression diversity by setup family.
+2. Candidate-to-emission survival rate by family.
+3. MTF rejection rate by family.
+4. Geometry cap/reject rate by family.
+5. Stop-too-tight / continuation-pattern classification rate.
+6. SL hit rate, MFE, and hold-duration distribution by family.
+7. Paid-channel quality metrics (confidence/outcome quality, not raw count).
+8. Runtime active-channel truth reporting (role clarity + real activation state).
+
+### 6.4 What We Will Not Do (Anti-Patterns)
+
+- No global loosening just to force higher signal count.
+- No blanket re-enable of all disabled channels.
+- No lowering requirements to fit current implementation shortcuts.
+- No confusion of config defaults with deployed runtime truth.
+- No arbitrary geometry distortion in place of evaluator invalidation doctrine.
+
+### 6.5 Final Execution Decision (Canonical)
+
+Implementation order for the next phase is fixed:
+1. PR-1 family-aware gate refinement (`360_SCALP`, MTF-centered)
+2. PR-2 geometry integrity hardening
+3. PR-3 governance / volatile contradiction cleanup
+4. PR-4 end-to-end path observability
+5. PR-5 controlled expansion/reactivation
+
+**Why this order:** expression recovery must come first on the active funnel, geometry integrity must follow immediately to avoid downstream distortion, governance normalization must come after core-funnel stabilization, observability must then lock in truth visibility, and expansion is only safe after those foundations are trustworthy.
+
+This is the real next mission: **recover high-integrity multi-family expression while preserving quality discipline and making runtime truth decisively observable.**
+
+### 6.6 Historical Context References
+
+The completed pre-2026-04-15 correction history remains valid and preserved in:
+- `docs/OWNER_BRIEF_ARCHIVE.md`
+- prior Part VI merged-roadmap records in git history
 
 ---
 
 ## Part VII — Current System Snapshot
 
-*(Updated: 2026-04-14 — WATCHLIST lifecycle segregation PRs #144 and #145 merged; live verification pending)*
+*(Updated: 2026-04-15 — canonical next-phase roadmap set from multi-model runtime-truth audits)*
 
 | Item | Status |
 |---|---|
@@ -831,7 +824,7 @@ If monitor data is unavailable or stale, Copilot flags this to the owner immedia
 | Internal `360_SCALP` evaluator set | 14 internal paths live |
 | Core engine quality | Strong core confirmed by multiple audits |
 | Strongest foundation paths | `FAILED_AUCTION_RECLAIM`, `CONTINUATION_LIQUIDITY_SWEEP`, `SR_FLIP_RETEST`, `TREND_PULLBACK_EMA`, `POST_DISPLACEMENT_CONTINUATION` |
-| Main current question | **Does post-PR #144 runtime produce clean paid lifecycle output with no WATCHLIST contamination?** — live monitor evidence required |
+| Main current question | **How do we recover high-integrity multi-family expression while preserving protection and geometry integrity?** |
 | Evaluator identity preservation | ✅ Complete (PR-01) |
 | Evaluator penalty preservation | ✅ Complete (PR-01, PR-15) |
 | Structural SL/TP preservation | ✅ Complete (PR-02, PR-14) |
@@ -843,13 +836,13 @@ If monitor data is unavailable or stale, Copilot flags this to the owner immedia
 | `360_SCALP` B-tier dead zone | ✅ Resolved (PR-18) |
 | `360_SCALP` WATCHLIST lifecycle admission | ✅ Fixed — WATCHLIST no longer enters `_active_signals` or paid lifecycle (PR #144, 2026-04-14) |
 | `360_SCALP` WATCHLIST formatter guard | ✅ Defensive zero-price guard added (PR #145, 2026-04-14) |
-| Duplicate lifecycle posting | ⚠️ Confirmed real — pending fix as next PR after live verification |
+| Duplicate lifecycle posting | ⚠️ Confirmed risk — now subordinate to the ordered PR-1..PR-5 roadmap |
 | Winner-takes-all | Eliminated (ARCH-2) |
 | Data pipeline | Complete (ARCH-3) — funding_rate and CVD wired into smc_data |
 | Family-aware scoring architecture | Live and downstream-faithful |
-| Current direction | Verify post-PR #144 WATCHLIST behavior live; then lifecycle idempotency / duplicate-post hardening |
-| Dominant live suppressors (per 2026-04-13 audit) | Spread-quality rejection (~32–60 pairs/cycle), MTF gating (~14/cycle), quiet-regime floor |
-| Phase 1 scorecard | Not yet started — begins only after live output confirms the corrected dispatch is producing qualified signals |
+| Current direction | Execute ordered PR-1..PR-5 roadmap from Part VI (family-aware expression recovery first) |
+| Dominant live suppressors (multi-model audits + monitor truth) | Spread-quality rejection, `mtf_gate:360_SCALP`, quiet-floor suppression, geometry cap/reject friction |
+| Phase 1 scorecard | Not yet started — begins after PR-1..PR-2 establish trustworthy expression + geometry behavior |
 | Subscribers | None — deliberately. Phase 1 validation must complete first. |
 | Intelligence Layer | Concept only — gate: 2 weeks confirmed live data |
 | Self-Optimisation | Concept only — gate: 50+ live signals in history |
