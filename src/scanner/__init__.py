@@ -95,7 +95,9 @@ from src.signal_quality import (
     classify_market_state,
     classify_setup,
     execution_quality_check,
+    is_sl_distance_capped,
     score_signal_components,
+    validate_geometry_against_policy,
 )
 from src.cluster_suppression import ClusterSuppressor
 from src.confidence_decay import apply_confidence_decay
@@ -1880,6 +1882,46 @@ class Scanner:
         sig.invalidation_summary = risk.invalidation_summary
 
     @staticmethod
+    def _capture_geometry(sig: Any) -> Tuple[float, float, float, Optional[float]]:
+        """Snapshot mutable SL/TP geometry from a signal for diff/revert logic."""
+        tp3_raw = getattr(sig, "tp3", None)
+        return (
+            float(getattr(sig, "stop_loss", 0.0) or 0.0),
+            float(getattr(sig, "tp1", 0.0) or 0.0),
+            float(getattr(sig, "tp2", 0.0) or 0.0),
+            float(tp3_raw) if tp3_raw is not None else None,
+        )
+
+    @staticmethod
+    def _restore_geometry(sig: Any, geometry: Tuple[float, float, float, Optional[float]]) -> None:
+        """Restore a previously captured SL/TP snapshot onto *sig*."""
+        sig.stop_loss, sig.tp1, sig.tp2, sig.tp3 = geometry
+
+    @staticmethod
+    def _geometry_changed(
+        before: Tuple[float, float, float, Optional[float]],
+        after: Tuple[float, float, float, Optional[float]],
+        tol: float = 1e-8,
+    ) -> bool:
+        """Return True when two geometry snapshots differ beyond tolerance."""
+        b_sl, b_tp1, b_tp2, b_tp3 = before
+        a_sl, a_tp1, a_tp2, a_tp3 = after
+        if abs(a_sl - b_sl) > tol or abs(a_tp1 - b_tp1) > tol or abs(a_tp2 - b_tp2) > tol:
+            return True
+        if b_tp3 is None and a_tp3 is None:
+            return False
+        if b_tp3 is None or a_tp3 is None:
+            return True
+        return abs(a_tp3 - b_tp3) > tol
+
+    @staticmethod
+    def _setup_family_for_channel(chan_name: str, setup_class_name: str) -> str:
+        """Resolve setup family tag used for low-cardinality geometry telemetry."""
+        if chan_name == "360_SCALP":
+            return _SCALP_SETUP_TO_FAMILY.get(setup_class_name, "other")
+        return "other"
+
+    @staticmethod
     def _get_primary_timeframe(chan_name: str) -> str:
         """Return the primary timeframe interval string for a given channel name."""
         return "5m"
@@ -2035,7 +2077,13 @@ class Scanner:
         symbol: str,
         sig: Any,
         ctx: ScanContext,
+        setup: SetupAssessment,
+        chan_name: str,
     ) -> None:
+        _setup_class_name = setup.setup_class.value
+        _setup_family = self._setup_family_for_channel(chan_name, _setup_class_name)
+        _pre_geom = self._capture_geometry(sig)
+        _baseline_sl_distance = abs(float(getattr(sig, "entry", 0.0) or 0.0) - _pre_geom[0])
         try:
             prediction = await self.predictive.predict(
                 symbol, ctx.candles, ctx.ind_for_predict
@@ -2044,6 +2092,58 @@ class Scanner:
             self.predictive.update_confidence(sig, prediction)
         except Exception as exc:
             log.debug("Predictive AI error for {}: {}", symbol, exc)
+            self._suppression_counters[
+                f"predictive_revalidation_bypassed:{chan_name}:predictive_error"
+            ] += 1
+            self._suppression_counters[
+                f"geometry_preserved_final:{chan_name}:{_setup_family}"
+            ] += 1
+            return
+
+        _post_geom = self._capture_geometry(sig)
+        if not self._geometry_changed(_pre_geom, _post_geom):
+            self._suppression_counters[
+                f"predictive_revalidation_bypassed:{chan_name}:unchanged"
+            ] += 1
+            self._suppression_counters[
+                f"geometry_preserved_final:{chan_name}:{_setup_family}"
+            ] += 1
+            return
+
+        self._suppression_counters[
+            f"predictive_revalidation_triggered:{chan_name}:{_setup_family}"
+        ] += 1
+        valid, reason = validate_geometry_against_policy(
+            signal=sig,
+            setup=setup.setup_class,
+            channel=chan_name,
+            max_sl_distance=_baseline_sl_distance,
+        )
+        if valid:
+            self._suppression_counters[
+                f"predictive_revalidation_passed:{chan_name}:{_setup_family}"
+            ] += 1
+            self._suppression_counters[
+                f"geometry_changed_final:{chan_name}:{_setup_family}"
+            ] += 1
+            return
+
+        self._restore_geometry(sig, _pre_geom)
+        self._suppression_counters[
+            f"predictive_revalidation_rejected:{chan_name}:{_setup_family}"
+        ] += 1
+        self._suppression_counters[
+            f"geometry_rejected_final:{chan_name}:{_setup_family}:{reason}"
+        ] += 1
+        self._suppression_counters[
+            f"geometry_preserved_final:{chan_name}:{_setup_family}"
+        ] += 1
+        log.warning(
+            "Predictive geometry rejected for {} {} ({}): reverted to validated plan",
+            symbol,
+            chan_name,
+            reason,
+        )
 
     @staticmethod
     def _clamp_confidence(value: float) -> float:
@@ -2152,6 +2252,8 @@ class Scanner:
         sig.detected_at = time.time()
 
         setup = self._evaluate_setup(chan_name, sig, ctx)
+        _setup_class_name = setup.setup_class.value
+        _setup_family = self._setup_family_for_channel(chan_name, _setup_class_name)
         if not setup.channel_compatible or not setup.regime_compatible:
             log.debug("Rejected {} {} setup: {}", symbol, chan_name, setup.reason)
             return None, None
@@ -2190,8 +2292,6 @@ class Scanner:
                 _mtf_min_score = min(_mtf_min_score, MTF_MIN_SCORE_TRENDING_SHORT)
             _generic_mtf_min_score = _mtf_min_score
 
-            _setup_class_name = setup.setup_class.value
-            _setup_family = _SCALP_SETUP_TO_FAMILY.get(_setup_class_name, "other")
             if chan_name == "360_SCALP":
                 _family_policy = _SCALP_MTF_POLICY_BY_FAMILY.get(_setup_family, {})
                 _family_mtf_cap = _family_policy.get("min_score_cap")
@@ -2476,7 +2576,37 @@ class Scanner:
         risk = self._evaluate_risk(sig, ctx, setup, chan_name=chan_name)
         if not risk.passed:
             log.debug("Rejected {} {} risk: {}", symbol, chan_name, risk.reason)
+            self._suppression_counters[
+                f"geometry_rejected_risk_plan:{chan_name}:{_setup_family}"
+            ] += 1
             return None, None
+        _eval_geom = self._capture_geometry(sig)
+        _risk_geom = (
+            float(risk.stop_loss),
+            float(risk.tp1),
+            float(risk.tp2),
+            float(risk.tp3) if risk.tp3 is not None else None,
+        )
+        if self._geometry_changed(_eval_geom, _risk_geom):
+            self._suppression_counters[
+                f"geometry_changed_risk_plan:{chan_name}:{_setup_family}"
+            ] += 1
+            _entry = float(getattr(sig, "entry", 0.0) or 0.0)
+            _eval_sl = _eval_geom[0]
+            if _entry > 0 and _eval_sl > 0:
+                if is_sl_distance_capped(
+                    entry=_entry,
+                    original_stop_loss=_eval_sl,
+                    final_stop_loss=_risk_geom[0],
+                    channel=chan_name,
+                ):
+                    self._suppression_counters[
+                        f"geometry_capped_risk_plan:{chan_name}:{_setup_family}"
+                    ] += 1
+        else:
+            self._suppression_counters[
+                f"geometry_preserved_risk_plan:{chan_name}:{_setup_family}"
+            ] += 1
         self._apply_risk_plan_to_signal(sig, risk)
 
         # ── Correlated position exposure cap ───────────────────────────────
@@ -2518,7 +2648,13 @@ class Scanner:
         if legacy_confidence is None:
             return None, cross_verified
         sig.confidence = legacy_confidence
-        await self._apply_predictive_adjustments(symbol, sig, ctx)
+        await self._apply_predictive_adjustments(
+            symbol,
+            sig,
+            ctx,
+            setup=setup,
+            chan_name=chan_name,
+        )
         setup_score = score_signal_components(
             pair_quality=ctx.pair_quality,
             setup=setup,

@@ -390,6 +390,143 @@ class TestScannerConfidencePipeline:
         # Confidence 65.0 < min_confidence 80.0 → rejected
         signal_queue.put.assert_not_awaited()
 
+
+class TestPredictiveGeometryRevalidation:
+    @staticmethod
+    def _predictive(tp_mult: float, sl_mult: float):
+        pred = SimpleNamespace(
+            confidence_adjustment=0.0,
+            predicted_direction="NEUTRAL",
+            suggested_tp_adjustment=tp_mult,
+            suggested_sl_adjustment=sl_mult,
+        )
+
+        async def _predict(*_args, **_kwargs):
+            return pred
+
+        def _adjust(sig, prediction):
+            entry = sig.entry
+            if prediction.suggested_tp_adjustment != 1.0:
+                m = prediction.suggested_tp_adjustment
+                sig.tp1 = entry + (sig.tp1 - entry) * m
+                sig.tp2 = entry + (sig.tp2 - entry) * m
+                if getattr(sig, "tp3", None) is not None:
+                    sig.tp3 = entry + (sig.tp3 - entry) * m
+            if prediction.suggested_sl_adjustment != 1.0:
+                m = prediction.suggested_sl_adjustment
+                sig.stop_loss = entry + (sig.stop_loss - entry) * m
+
+        return SimpleNamespace(
+            predict=AsyncMock(side_effect=_predict),
+            adjust_tp_sl=MagicMock(side_effect=_adjust),
+            update_confidence=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_invalid_predictive_geometry_is_reverted(self):
+        channel = MagicMock()
+        channel.config = SimpleNamespace(name="360_SCALP", min_confidence=10.0)
+        signal_queue = MagicMock()
+        signal_queue.put = AsyncMock(return_value=True)
+        scanner = _make_scan_ready_scanner(
+            channel=channel,
+            signal_queue=signal_queue,
+            predictive=self._predictive(tp_mult=1.0, sl_mult=-1.0),
+        )
+        sig = _make_signal(channel="360_SCALP")
+        sig.stop_loss = 98.8
+        sig.tp1 = 101.6
+        sig.tp2 = 103.2
+        sig.tp3 = 104.8
+        before = (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3)
+        ctx = SimpleNamespace(candles={"5m": _candles()}, ind_for_predict={"atr_last": 1.0})
+
+        await scanner._apply_predictive_adjustments(
+            "BTCUSDT",
+            sig,
+            ctx,
+            setup=_setup_pass(SetupClass.VOLUME_SURGE_BREAKOUT),
+            chan_name="360_SCALP",
+        )
+
+        assert (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3) == pytest.approx(before, rel=1e-8)
+        assert scanner._suppression_counters[
+            "predictive_revalidation_rejected:360_SCALP:breakout_momentum"
+        ] == 1
+        assert scanner._suppression_counters[
+            "geometry_preserved_final:360_SCALP:breakout_momentum"
+        ] == 1
+
+    @pytest.mark.asyncio
+    async def test_valid_predictive_geometry_change_is_kept(self):
+        channel = MagicMock()
+        channel.config = SimpleNamespace(name="360_SCALP", min_confidence=10.0)
+        signal_queue = MagicMock()
+        signal_queue.put = AsyncMock(return_value=True)
+        scanner = _make_scan_ready_scanner(
+            channel=channel,
+            signal_queue=signal_queue,
+            predictive=self._predictive(tp_mult=1.1, sl_mult=0.9),
+        )
+        sig = _make_signal(channel="360_SCALP")
+        sig.stop_loss = 98.8
+        sig.tp1 = 101.6
+        sig.tp2 = 103.2
+        sig.tp3 = 104.8
+        before = (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3)
+        ctx = SimpleNamespace(candles={"5m": _candles()}, ind_for_predict={"atr_last": 1.0})
+
+        await scanner._apply_predictive_adjustments(
+            "BTCUSDT",
+            sig,
+            ctx,
+            setup=_setup_pass(SetupClass.VOLUME_SURGE_BREAKOUT),
+            chan_name="360_SCALP",
+        )
+
+        assert (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3) != pytest.approx(before, rel=1e-8)
+        assert scanner._suppression_counters[
+            "predictive_revalidation_passed:360_SCALP:breakout_momentum"
+        ] == 1
+        assert scanner._suppression_counters[
+            "geometry_changed_final:360_SCALP:breakout_momentum"
+        ] == 1
+
+    @pytest.mark.asyncio
+    async def test_unchanged_predictive_geometry_is_bypassed(self):
+        channel = MagicMock()
+        channel.config = SimpleNamespace(name="360_SCALP", min_confidence=10.0)
+        signal_queue = MagicMock()
+        signal_queue.put = AsyncMock(return_value=True)
+        scanner = _make_scan_ready_scanner(
+            channel=channel,
+            signal_queue=signal_queue,
+            predictive=self._predictive(tp_mult=1.0, sl_mult=1.0),
+        )
+        sig = _make_signal(channel="360_SCALP")
+        sig.stop_loss = 98.8
+        sig.tp1 = 101.6
+        sig.tp2 = 103.2
+        sig.tp3 = 104.8
+        before = (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3)
+        ctx = SimpleNamespace(candles={"5m": _candles()}, ind_for_predict={"atr_last": 1.0})
+
+        await scanner._apply_predictive_adjustments(
+            "BTCUSDT",
+            sig,
+            ctx,
+            setup=_setup_pass(SetupClass.VOLUME_SURGE_BREAKOUT),
+            chan_name="360_SCALP",
+        )
+
+        assert (sig.stop_loss, sig.tp1, sig.tp2, sig.tp3) == pytest.approx(before, rel=1e-8)
+        assert scanner._suppression_counters[
+            "predictive_revalidation_bypassed:360_SCALP:unchanged"
+        ] == 1
+        assert scanner._suppression_counters[
+            "geometry_preserved_final:360_SCALP:breakout_momentum"
+        ] == 1
+
     @pytest.mark.asyncio
     async def test_high_confidence_signals_enqueued_without_ai(self):
         """High-confidence quantitative signals fire immediately without any AI
@@ -918,6 +1055,33 @@ class TestMTFGateInScanner:
         assert mock_mtf.call_args_list[0].kwargs["min_score"] == pytest.approx(0.35)
         assert mock_mtf.call_args_list[1].kwargs["min_score"] == pytest.approx(0.6)
         assert scanner._suppression_counters["mtf_policy_saved:360_SCALP:reclaim_retest"] == 1
+
+    @pytest.mark.asyncio
+    async def test_risk_plan_geometry_cap_telemetry(self):
+        scanner, signal_queue = self._scanner_and_queue()
+        capped_risk = RiskAssessment(
+            passed=True,
+            stop_loss=98.5,  # 1.5% from entry — channel cap boundary
+            tp1=101.3,
+            tp2=102.6,
+            tp3=103.9,
+            r_multiple=0.87,
+            invalidation_summary="Below structure + buffer",
+        )
+
+        with _common_gate_patches(scanner, [
+            patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.VOLUME_SURGE_BREAKOUT)),
+            patch.object(scanner, "_evaluate_risk", return_value=capped_risk),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_awaited_once()
+        assert scanner._suppression_counters[
+            "geometry_changed_risk_plan:360_SCALP:breakout_momentum"
+        ] == 1
+        assert scanner._suppression_counters[
+            "geometry_capped_risk_plan:360_SCALP:breakout_momentum"
+        ] == 1
 
 
 class TestVWAPGateInScanner:
