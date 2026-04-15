@@ -14,6 +14,7 @@ from src.regime import MarketRegime
 from src.scanner import Scanner, _RANGING_ADX_SUPPRESS_THRESHOLD
 from src.signal_quality import (
     ExecutionAssessment,
+    MarketState,
     RiskAssessment,
     SetupAssessment,
     SetupClass,
@@ -869,6 +870,72 @@ class TestRegimeStabilityTracker:
         # SWING should not be blocked by QUIET regime
         result = scanner._should_skip_channel("ETHUSDT", "360_SWING", ctx)
         assert result is False
+
+
+class TestPR3GovernanceRuntimeRoles:
+    """PR-3 governance/runtime truth and volatile contradiction cleanup."""
+
+    def test_runtime_role_distinguishes_paid_vs_disabled_defaults(self):
+        scanner = _make_scanner()
+        assert scanner._classify_channel_runtime_role("360_SCALP") == "runtime_active_paid"
+        assert scanner._classify_channel_runtime_role("360_SCALP_FVG") == "intentionally_disabled"
+
+    def test_runtime_role_marks_disabled_channel_as_radar_only_when_callback_wired(self):
+        scanner = _make_scanner()
+        scanner.on_radar_candidate = AsyncMock()
+        assert scanner._classify_channel_runtime_role("360_SCALP_FVG") == "radar_only"
+
+    def test_governance_snapshot_exposes_default_and_runtime_truth(self):
+        scanner = _make_scanner()
+        snapshot = scanner._channel_governance_snapshot()
+        assert snapshot["360_SCALP"]["config_default_enabled"] is True
+        assert snapshot["360_SCALP"]["runtime_enabled"] is True
+        assert snapshot["360_SCALP"]["runtime_role"] == "runtime_active_paid"
+        assert snapshot["360_SCALP_FVG"]["config_default_enabled"] is False
+        assert snapshot["360_SCALP_FVG"]["runtime_enabled"] is False
+
+    def test_should_not_channel_skip_specialist_in_volatile_unsuitable(self):
+        scanner = _make_scanner()
+        ctx = MagicMock()
+        ctx.pair_quality.passed = True
+        ctx.market_state = MarketState.VOLATILE_UNSUITABLE
+        ctx.regime_result.regime.value = "VOLATILE_UNSUITABLE"
+        scanner.circuit_breaker = None
+        scanner.router.active_signals = {}
+        ctx.is_ranging = False
+        ctx.adx_val = 25.0
+        result = scanner._should_skip_channel("ETHUSDT", "360_SCALP_DIVERGENCE", ctx)
+        assert result is False
+        assert scanner._suppression_counters["volatile_unsuitable:family_governed:360_SCALP_DIVERGENCE"] == 1
+        assert scanner._suppression_counters["volatile_unsuitable:360_SCALP_DIVERGENCE"] == 0
+
+    @pytest.mark.asyncio
+    async def test_prepare_signal_tracks_family_level_volatile_block(self):
+        scanner = _make_scanner()
+        chan = MagicMock()
+        chan.config.name = "360_SCALP_DIVERGENCE"
+        chan.evaluate.return_value = _make_signal(channel="360_SCALP_DIVERGENCE", confidence=70.0)
+        ctx = SimpleNamespace(
+            candles={},
+            indicators={},
+            smc_data={},
+            spread_pct=0.001,
+            regime_result=SimpleNamespace(regime=SimpleNamespace(value="VOLATILE_UNSUITABLE")),
+            market_state=MarketState.VOLATILE_UNSUITABLE,
+        )
+        scanner._evaluate_setup = MagicMock(
+            return_value=SetupAssessment(
+                setup_class=SetupClass.FAILED_AUCTION_RECLAIM,
+                thesis="volatile blocked",
+                channel_compatible=True,
+                regime_compatible=False,
+                reason="regime incompatible",
+            )
+        )
+        sig, cross_verified = await scanner._prepare_signal("ETHUSDT", 10_000_000.0, chan, ctx)
+        assert sig is None
+        assert cross_verified is None
+        assert scanner._suppression_counters["volatile_unsuitable:family_block:360_SCALP_DIVERGENCE"] == 1
 
 
 # ---------------------------------------------------------------------------

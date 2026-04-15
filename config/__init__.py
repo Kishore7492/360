@@ -715,6 +715,17 @@ ALL_CHANNELS: List[ChannelConfig] = [
 # The channel's evaluate() method still exists and works — the scanner simply
 # skips it. Flip back to true in .env to re-enable instantly.
 # ---------------------------------------------------------------------------
+CHANNEL_ENABLE_DEFAULTS: Dict[str, bool] = {
+    "360_SCALP": True,
+    "360_SCALP_FVG": False,
+    "360_SCALP_ORDERBLOCK": False,
+    "360_SCALP_DIVERGENCE": False,
+    "360_SCALP_CVD": False,
+    "360_SCALP_VWAP": False,
+    "360_SCALP_SUPERTREND": False,
+    "360_SCALP_ICHIMOKU": False,
+}
+
 CHANNEL_SCALP_ENABLED:            bool = _safe_bool("CHANNEL_SCALP_ENABLED",            "true")
 # PR-04: Auxiliary paid-channel paths disabled by default pending governance rebuild.
 # These channels (FVG_RETEST, RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK) are under review
