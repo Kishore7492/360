@@ -50,6 +50,28 @@ def _safe_bool(name: str, default: str) -> bool:
     return os.getenv(name, default).lower() in ("true", "1", "yes")
 
 
+def _safe_choice(name: str, default: str, allowed: frozenset[str]) -> str:
+    """Parse an env var as constrained string, fail-closing to ``default``."""
+    raw = os.getenv(name, default)
+    val = str(raw).strip().lower()
+    if val in allowed:
+        return val
+    logging.warning(
+        "Invalid choice for env var %s=%r — using default %s (allowed=%s)",
+        name, raw, default, ",".join(sorted(allowed)),
+    )
+    return default
+
+
+def _safe_symbol_set(name: str, default: str) -> frozenset[str]:
+    """Parse comma-separated symbol list into an uppercase frozenset."""
+    return frozenset(
+        s.strip().upper()
+        for s in os.getenv(name, default).split(",")
+        if s.strip()
+    )
+
+
 # ---------------------------------------------------------------------------
 # LOG_LEVEL validation (FINDING-033)
 # ---------------------------------------------------------------------------
@@ -719,7 +741,9 @@ CHANNEL_ENABLE_DEFAULTS: Dict[str, bool] = {
     "360_SCALP": True,
     "360_SCALP_FVG": False,
     "360_SCALP_ORDERBLOCK": False,
-    "360_SCALP_DIVERGENCE": False,
+    # PR-5 first rollout step: divergence path enters controlled limited-live.
+    # This remains narrow via channel rollout-state + pilot symbol guardrails.
+    "360_SCALP_DIVERGENCE": True,
     "360_SCALP_CVD": False,
     "360_SCALP_VWAP": False,
     "360_SCALP_SUPERTREND": False,
@@ -751,18 +775,64 @@ CHANNEL_VOLATILE_FAMILY_GOVERNED: frozenset[str] = frozenset({
 })
 
 CHANNEL_SCALP_ENABLED:            bool = _safe_bool("CHANNEL_SCALP_ENABLED",            "true")
-# PR-04: Auxiliary paid-channel paths disabled by default pending governance rebuild.
-# These channels (FVG_RETEST, RSI_MACD_DIVERGENCE, SMC_ORDERBLOCK) are under review
-# and are not yet trusted for redeploy as part of the canonical production portfolio.
-# Code is preserved — set the corresponding env var to "true" to re-enable explicitly.
+# PR-04/PR-05: Auxiliary channels are governed by explicit rollout states.
+# Flags remain emergency operator overrides for rapid rollback/disable.
 CHANNEL_SCALP_FVG_ENABLED:        bool = _safe_bool("CHANNEL_SCALP_FVG_ENABLED",        "false")
 CHANNEL_SCALP_ORDERBLOCK_ENABLED: bool = _safe_bool("CHANNEL_SCALP_ORDERBLOCK_ENABLED", "false")
-CHANNEL_SCALP_DIVERGENCE_ENABLED: bool = _safe_bool("CHANNEL_SCALP_DIVERGENCE_ENABLED", "false")
+CHANNEL_SCALP_DIVERGENCE_ENABLED: bool = _safe_bool("CHANNEL_SCALP_DIVERGENCE_ENABLED", "true")
 # Soft-disabled noisy channels — set env var to "true" to re-enable instantly
 CHANNEL_SCALP_CVD_ENABLED:        bool = _safe_bool("CHANNEL_SCALP_CVD_ENABLED",        "false")
 CHANNEL_SCALP_VWAP_ENABLED:       bool = _safe_bool("CHANNEL_SCALP_VWAP_ENABLED",       "false")
 CHANNEL_SCALP_SUPERTREND_ENABLED: bool = _safe_bool("CHANNEL_SCALP_SUPERTREND_ENABLED", "false")
 CHANNEL_SCALP_ICHIMOKU_ENABLED:   bool = _safe_bool("CHANNEL_SCALP_ICHIMOKU_ENABLED",   "false")
+
+# Controlled rollout doctrine (PR-5):
+# - disabled    : channel does not evaluate in live or radar paths.
+# - radar_only  : observe-only; no paid/live dispatch.
+# - limited_live: paid/live enabled only for pilot symbols (plus radar outside pilot).
+# - full_live   : normal paid/live channel operation.
+CHANNEL_ROLLOUT_STATES_ALLOWED: frozenset[str] = frozenset({
+    "disabled",
+    "radar_only",
+    "limited_live",
+    "full_live",
+})
+CHANNEL_ROLLOUT_STATE_DEFAULTS: Dict[str, str] = {
+    "360_SCALP": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP", "full_live", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_FVG": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_FVG", "radar_only", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_ORDERBLOCK": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_ORDERBLOCK", "radar_only", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    # PR-5 first selective activation: narrow limited-live pilot.
+    "360_SCALP_DIVERGENCE": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_DIVERGENCE", "limited_live", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_CVD": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_CVD", "disabled", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_VWAP": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_VWAP", "disabled", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_SUPERTREND": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_SUPERTREND", "disabled", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+    "360_SCALP_ICHIMOKU": _safe_choice(
+        "CHANNEL_ROLLOUT_STATE_360_SCALP_ICHIMOKU", "disabled", CHANNEL_ROLLOUT_STATES_ALLOWED
+    ),
+}
+
+# Channel-specific pilot universe for limited-live rollouts.
+# Empty set means rollback to observe-only behavior for that channel.
+CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS: Dict[str, frozenset[str]] = {
+    "360_SCALP_DIVERGENCE": _safe_symbol_set(
+        "CHANNEL_LIMITED_LIVE_PILOT_SYMBOLS_360_SCALP_DIVERGENCE",
+        "BTCUSDT,ETHUSDT",
+    ),
+}
 # PR-06: OPENING_RANGE_BREAKOUT disabled by default pending rebuild with true
 # session-opening-range logic.  The current implementation uses the last 8 bars
 # as a proxy — not an institutional-grade session-anchored range.  Code is
