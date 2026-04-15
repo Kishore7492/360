@@ -1887,15 +1887,18 @@ class Scanner:
 
     @staticmethod
     def _capture_geometry(sig: Any) -> Tuple[float, float, float, Optional[float]]:
+        """Snapshot mutable SL/TP geometry from a signal for diff/revert logic."""
+        tp3_raw = getattr(sig, "tp3", None)
         return (
             float(getattr(sig, "stop_loss", 0.0) or 0.0),
             float(getattr(sig, "tp1", 0.0) or 0.0),
             float(getattr(sig, "tp2", 0.0) or 0.0),
-            float(getattr(sig, "tp3", 0.0)) if getattr(sig, "tp3", None) is not None else None,
+            float(tp3_raw) if tp3_raw is not None else None,
         )
 
     @staticmethod
     def _restore_geometry(sig: Any, geometry: Tuple[float, float, float, Optional[float]]) -> None:
+        """Restore a previously captured SL/TP snapshot onto *sig*."""
         sig.stop_loss, sig.tp1, sig.tp2, sig.tp3 = geometry
 
     @staticmethod
@@ -1904,6 +1907,7 @@ class Scanner:
         after: Tuple[float, float, float, Optional[float]],
         tol: float = 1e-8,
     ) -> bool:
+        """Return True when two geometry snapshots differ beyond tolerance."""
         b_sl, b_tp1, b_tp2, b_tp3 = before
         a_sl, a_tp1, a_tp2, a_tp3 = after
         if abs(a_sl - b_sl) > tol or abs(a_tp1 - b_tp1) > tol or abs(a_tp2 - b_tp2) > tol:
@@ -1916,12 +1920,14 @@ class Scanner:
 
     @staticmethod
     def _setup_family_for_channel(chan_name: str, setup_class_name: str) -> str:
+        """Resolve setup family tag used for low-cardinality geometry telemetry."""
         if chan_name == "360_SCALP":
             return _SCALP_SETUP_TO_FAMILY.get(setup_class_name, "other")
         return "other"
 
     @staticmethod
     def _min_rr_for_setup(setup_class: SetupClass) -> float:
+        """Mirror build_risk_plan() minimum RR policy for post-predictive validation."""
         if setup_class in (SetupClass.RANGE_REJECTION, SetupClass.RANGE_FADE):
             return _MIN_RR_RANGE
         if setup_class in (SetupClass.LIQUIDATION_REVERSAL, SetupClass.FUNDING_EXTREME_SIGNAL):
@@ -1937,6 +1943,12 @@ class Scanner:
         chan_name: str,
         max_sl_distance: float,
     ) -> Tuple[bool, str]:
+        """Validate predictive-adjusted geometry before allowing it downstream.
+
+        Returns (True, "") when geometry remains directionally sane, within
+        channel SL safety limits, does not widen risk beyond the validated
+        risk-plan envelope, and still meets setup-specific minimum RR.
+        """
         entry = float(getattr(sig, "entry", 0.0) or 0.0)
         stop = float(getattr(sig, "stop_loss", 0.0) or 0.0)
         tp1 = float(getattr(sig, "tp1", 0.0) or 0.0)
