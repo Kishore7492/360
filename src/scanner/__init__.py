@@ -2190,6 +2190,7 @@ class Scanner:
             _setup_family = _SCALP_SETUP_FAMILY_BY_SETUP.get(_setup_class_name, "other")
             if chan_name == "360_SCALP":
                 _family_mtf_cap = _SCALP_MTF_MIN_SCORE_CAP_BY_FAMILY.get(_setup_family)
+                # Track only effective relaxations (cap is tighter/equal => no behavior change).
                 if _family_mtf_cap is not None and _family_mtf_cap < _mtf_min_score:
                     _mtf_min_score = _family_mtf_cap
                     self._suppression_counters[

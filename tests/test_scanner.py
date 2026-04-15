@@ -890,14 +890,18 @@ class TestMTFGateInScanner:
     @pytest.mark.asyncio
     async def test_mtf_policy_saved_counter_when_relaxed_policy_preserves_candidate(self):
         scanner, signal_queue = self._scanner_and_queue()
+        mock_mtf = MagicMock(side_effect=[(True, ""), (False, "generic fails")])
 
         with _common_gate_patches(scanner, [
             patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.FAILED_AUCTION_RECLAIM)),
-            patch("src.scanner.check_mtf_gate", side_effect=[(True, ""), (False, "generic fails")]),
+            patch("src.scanner.check_mtf_gate", mock_mtf),
         ]):
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
 
         signal_queue.put.assert_awaited_once()
+        assert mock_mtf.call_count == 2
+        assert mock_mtf.call_args_list[0].kwargs["min_score"] == pytest.approx(0.35)
+        assert mock_mtf.call_args_list[1].kwargs["min_score"] == pytest.approx(0.6)
         assert scanner._suppression_counters["mtf_policy_saved:360_SCALP:reclaim_retest"] == 1
 
 
