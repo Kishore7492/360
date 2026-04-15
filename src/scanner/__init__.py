@@ -604,6 +604,9 @@ class Scanner:
         # setup_class, logged every 100 scan cycles for operational visibility.
         self._setup_eval_counts: Dict[str, int] = defaultdict(int)
         self._setup_emit_counts: Dict[str, int] = defaultdict(int)
+        # End-to-end path observability counters (rolling 100-scan window).
+        self._path_funnel_counters: Dict[str, int] = defaultdict(int)
+        self._channel_funnel_counters: Dict[str, int] = defaultdict(int)
 
         # Scoring tier telemetry: accumulates candidate counts per setup_class
         # and score tier across cycles; logged every 100 scan cycles to diagnose
@@ -1289,6 +1292,17 @@ class Scanner:
                     dict(self._scoring_tier_counters),
                 )
                 self._scoring_tier_counters.clear()
+            if (
+                self._scan_cycle_count % 100 == 0
+                and (self._path_funnel_counters or self._channel_funnel_counters)
+            ):
+                log.info(
+                    "Path funnel (last 100 cycles): path={} channel={}",
+                    dict(self._path_funnel_counters),
+                    dict(self._channel_funnel_counters),
+                )
+                self._path_funnel_counters.clear()
+                self._channel_funnel_counters.clear()
 
             # Touch heartbeat file so healthcheck knows the scanner is alive
             # (FINDING-024).
@@ -1985,6 +1999,30 @@ class Scanner:
         if chan_name == "360_SCALP":
             return _SCALP_SETUP_TO_FAMILY.get(setup_class_name, "other")
         return "other"
+
+    @staticmethod
+    def _setup_class_name(setup_class_name: Any) -> str:
+        if isinstance(setup_class_name, str):
+            return setup_class_name or "UNKNOWN"
+        return str(getattr(setup_class_name, "value", setup_class_name) or "UNKNOWN")
+
+    def _path_funnel_key(self, stage: str, chan_name: str, setup_class_name: Any) -> str:
+        _setup_name = self._setup_class_name(setup_class_name)
+        _family = self._setup_family_for_channel(chan_name, _setup_name)
+        return f"{stage}:{chan_name}:{_family}:{_setup_name}"
+
+    def _increment_path_funnel(self, stage: str, chan_name: str, setup_class_name: Any) -> None:
+        self._path_funnel_counters[self._path_funnel_key(stage, chan_name, setup_class_name)] += 1
+
+    def _path_stage_total(self, stage: str, chan_name: str) -> int:
+        _prefix = f"{stage}:{chan_name}:"
+        return sum(v for k, v in self._path_funnel_counters.items() if k.startswith(_prefix))
+
+    def on_signal_lifecycle_outcome(self, sig: Any, outcome_label: str) -> None:
+        """Record final lifecycle outcome against origin setup family/path."""
+        _chan_name = getattr(sig, "channel", "") or "UNKNOWN"
+        _setup_class_name = getattr(sig, "setup_class", "") or "UNKNOWN"
+        self._increment_path_funnel(f"lifecycle:{outcome_label}", _chan_name, _setup_class_name)
 
     @staticmethod
     def _get_primary_timeframe(chan_name: str) -> str:
@@ -2897,6 +2935,7 @@ class Scanner:
         # Per-path scoring telemetry: capture setup_class before entering the
         # scoring block so tier counters can be keyed by path (not just channel).
         _sc = getattr(sig, "setup_class", "UNKNOWN")
+        self._increment_path_funnel("scored", chan_name, _sc)
         self._suppression_counters[f"candidate_reached_scoring:{_sc}"] += 1
         self._scoring_tier_counters[f"candidate_reached_scoring:{_sc}"] += 1
         # ── PR_09: Composite Signal Scoring Engine ────────────────────────
@@ -3330,6 +3369,8 @@ class Scanner:
                     _raw_sigs = [_raw_result]
                 else:
                     _raw_sigs = []
+                if not _raw_sigs:
+                    self._channel_funnel_counters[f"no_candidate_generated:{chan_name}"] += 1
                 # PR-03: Quality-ranked arbitration — evaluate ALL same-direction
                 # candidates and keep the best one by final confidence score.
                 # This replaces the previous first-wins dedup that allowed a
@@ -3338,6 +3379,9 @@ class Scanner:
                 # Format: direction → (best_prepared_sig, chan_name)
                 _scalp_dir_best: dict = {}
                 for _raw_sig in _raw_sigs:
+                    _raw_setup = self._setup_class_name(getattr(_raw_sig, "setup_class", "UNKNOWN"))
+                    self._increment_path_funnel("generated", chan_name, _raw_setup)
+                    _scored_before = self._path_stage_total("scored", chan_name)
                     # cross_verified is None for all scalp channels (cross-exchange
                     # verification is skipped for 360_SCALP — see _prepare_signal).
                     sig, _cross_verified = await self._prepare_signal(
@@ -3345,6 +3389,11 @@ class Scanner:
                         _preseed_signal=_raw_sig,
                     )
                     if sig is None:
+                        _scored_after = self._path_stage_total("scored", chan_name)
+                        if _scored_after > _scored_before:
+                            self._increment_path_funnel("filtered", chan_name, _raw_setup)
+                        else:
+                            self._increment_path_funnel("gated", chan_name, _raw_setup)
                         continue
                     _sig_dir = (
                         sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction)
@@ -3385,8 +3434,38 @@ class Scanner:
                     self._setup_eval_counts[_sc] += 1
                     _pending_signals.append((_best_sig, _best_chan))
             else:
-                sig, cross_verified = await self._prepare_signal(symbol, volume_24h, chan, ctx_for_chan)
+                try:
+                    _raw_result = chan.evaluate(
+                        symbol=symbol,
+                        candles=ctx_for_chan.candles,
+                        indicators=ctx_for_chan.indicators,
+                        smc_data=ctx_for_chan.smc_data,
+                        spread_pct=ctx_for_chan.spread_pct,
+                        volume_24h_usd=volume_24h,
+                        regime=ctx_for_chan.regime_result.regime.value,
+                    )
+                except Exception as _exc:
+                    log.debug("Channel {} eval error for {}: {}", chan_name, symbol, _exc)
+                    _raw_result = None
+                if _raw_result is None:
+                    self._channel_funnel_counters[f"no_candidate_generated:{chan_name}"] += 1
+                    continue
+                _raw_setup = self._setup_class_name(getattr(_raw_result, "setup_class", "UNKNOWN"))
+                self._increment_path_funnel("generated", chan_name, _raw_setup)
+                _scored_before = self._path_stage_total("scored", chan_name)
+                sig, cross_verified = await self._prepare_signal(
+                    symbol,
+                    volume_24h,
+                    chan,
+                    ctx_for_chan,
+                    _preseed_signal=_raw_result,
+                )
                 if sig is None:
+                    _scored_after = self._path_stage_total("scored", chan_name)
+                    if _scored_after > _scored_before:
+                        self._increment_path_funnel("filtered", chan_name, _raw_setup)
+                    else:
+                        self._increment_path_funnel("gated", chan_name, _raw_setup)
                     continue
                 # Directional global cooldown check: skip if same (symbol, direction)
                 # fired recently. Opposite direction is not blocked.
@@ -3500,6 +3579,7 @@ class Scanner:
                 )
                 if await self._enqueue_signal(best_sig):
                     self._setup_emit_counts[best_sig.setup_class] += 1
+                    self._increment_path_funnel("emitted", best_ch, best_sig.setup_class)
                     for _, ch_name in signals_and_channels:
                         self._set_cooldown(symbol, ch_name)
                     self.cluster_suppressor.record_signal(symbol, direction)
@@ -3518,6 +3598,7 @@ class Scanner:
             if not await self._enqueue_signal(sig):
                 continue
             self._setup_emit_counts[sig.setup_class] += 1
+            self._increment_path_funnel("emitted", chan_name, sig.setup_class)
             self._set_cooldown(symbol, chan_name)
             self.cluster_suppressor.record_signal(symbol, _dir)
             # Directional cooldown: key is (symbol, direction) so the

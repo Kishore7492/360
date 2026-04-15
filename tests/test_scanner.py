@@ -213,6 +213,17 @@ class TestScannerCooldown:
         actual_duration = expiry - time.monotonic()
         assert abs(actual_duration - expected_duration) < 2  # within 2 seconds
 
+    def test_lifecycle_outcome_counter_is_family_attributed(self):
+        scanner = _make_scanner()
+        sig = _make_signal(channel="360_SCALP")
+        sig.setup_class = "FAILED_AUCTION_RECLAIM"
+
+        scanner.on_signal_lifecycle_outcome(sig, "SL_HIT")
+
+        assert scanner._path_funnel_counters[
+            "lifecycle:SL_HIT:360_SCALP:reclaim_retest:FAILED_AUCTION_RECLAIM"
+        ] == 1
+
 
 class TestScannerCircuitBreaker:
     def test_circuit_breaker_not_set_by_default(self):
@@ -1181,6 +1192,94 @@ class TestMTFGateInScanner:
         assert scanner._suppression_counters[
             "geometry_capped_risk_plan:360_SCALP:breakout_momentum"
         ] == 1
+
+    @pytest.mark.asyncio
+    async def test_path_funnel_distinguishes_no_candidate_and_gated(self):
+        scanner, signal_queue = self._scanner_and_queue()
+        scanner.channels[0].evaluate.return_value = None
+
+        with _common_gate_patches(scanner):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_not_awaited()
+        assert scanner._channel_funnel_counters["no_candidate_generated:360_SCALP"] == 1
+
+        raw_sig = _make_signal(channel="360_SCALP")
+        raw_sig.setup_class = SetupClass.VOLUME_SURGE_BREAKOUT.value
+        scanner.channels[0].evaluate.return_value = raw_sig
+
+        with _common_gate_patches(scanner, [
+            patch("src.scanner.check_mtf_gate", return_value=(False, "MTF misaligned")),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_not_awaited()
+        assert scanner._path_funnel_counters[
+            "generated:360_SCALP:breakout_momentum:VOLUME_SURGE_BREAKOUT"
+        ] == 1
+        assert scanner._path_funnel_counters[
+            "gated:360_SCALP:breakout_momentum:VOLUME_SURGE_BREAKOUT"
+        ] == 1
+
+    @pytest.mark.asyncio
+    async def test_path_funnel_tracks_scored_filtered_and_emitted(self):
+        scanner, signal_queue = self._scanner_and_queue()
+        raw_sig = _make_signal(channel="360_SCALP")
+        raw_sig.setup_class = SetupClass.VOLUME_SURGE_BREAKOUT.value
+        scanner.channels[0].evaluate.return_value = raw_sig
+
+        low_score = {
+            "total": 40.0,
+            "smc": 10.0,
+            "regime": 10.0,
+            "volume": 5.0,
+            "indicators": 5.0,
+            "patterns": 5.0,
+            "mtf": 5.0,
+            "thesis_adj": 0.0,
+        }
+        with _common_gate_patches(scanner, [
+            patch("src.scanner._scoring_engine.score", return_value=low_score),
+            patch("src.scanner.check_mtf_gate", return_value=(True, "")),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_not_awaited()
+        scored = {
+            k: v for k, v in scanner._path_funnel_counters.items()
+            if k.startswith("scored:360_SCALP:")
+        }
+        filtered = {
+            k: v for k, v in scanner._path_funnel_counters.items()
+            if k.startswith("filtered:360_SCALP:")
+        }
+        assert sum(scored.values()) == 1
+        assert sum(filtered.values()) == 1
+
+        scanner._path_funnel_counters.clear()
+        signal_queue.put.reset_mock()
+        high_score = {
+            "total": 85.0,
+            "smc": 20.0,
+            "regime": 15.0,
+            "volume": 10.0,
+            "indicators": 18.0,
+            "patterns": 10.0,
+            "mtf": 10.0,
+            "thesis_adj": 2.0,
+        }
+        with _common_gate_patches(scanner, [
+            patch("src.scanner.check_mtf_gate", return_value=(True, "")),
+            patch("src.scanner._scoring_engine.score", return_value=high_score),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_awaited_once()
+        emitted = {
+            k: v for k, v in scanner._path_funnel_counters.items()
+            if k.startswith("emitted:360_SCALP:")
+        }
+        assert sum(emitted.values()) == 1
 
 
 class TestVWAPGateInScanner:
