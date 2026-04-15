@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from config import CHANNEL_ENABLE_DEFAULTS
 from src.channels.base import Signal
 from src.regime import MarketRegime
 from src.scanner import Scanner, _RANGING_ADX_SUPPRESS_THRESHOLD
@@ -888,6 +889,7 @@ class TestPR3GovernanceRuntimeRoles:
     def test_governance_snapshot_exposes_default_and_runtime_truth(self):
         scanner = _make_scanner()
         snapshot = scanner._channel_governance_snapshot()
+        assert set(snapshot.keys()).issubset(set(CHANNEL_ENABLE_DEFAULTS.keys()))
         assert snapshot["360_SCALP"]["config_default_enabled"] is True
         assert snapshot["360_SCALP"]["runtime_enabled"] is True
         assert snapshot["360_SCALP"]["runtime_role"] == "runtime_active_paid"

@@ -675,7 +675,7 @@ class Scanner:
     def _classify_channel_runtime_role(self, channel_name: str) -> str:
         """Return explicit runtime role for channel governance telemetry."""
         _runtime_enabled = _CHANNEL_ENABLED_FLAGS.get(channel_name, True)
-        _default_enabled = CHANNEL_ENABLE_DEFAULTS.get(channel_name, _runtime_enabled)
+        _default_enabled = CHANNEL_ENABLE_DEFAULTS.get(channel_name, False)
         _product_role = _CHANNEL_PRODUCT_ROLES.get(channel_name, "specialist")
         _radar_enabled = getattr(self, "on_radar_candidate", None) is not None
         if _runtime_enabled:
@@ -695,7 +695,7 @@ class Scanner:
             _snapshot[_chan_name] = {
                 "product_role": _CHANNEL_PRODUCT_ROLES.get(_chan_name, "specialist"),
                 "config_default_enabled": CHANNEL_ENABLE_DEFAULTS.get(
-                    _chan_name, _runtime_enabled,
+                    _chan_name, False,
                 ),
                 "runtime_enabled": _runtime_enabled,
                 "runtime_role": self._classify_channel_runtime_role(_chan_name),
