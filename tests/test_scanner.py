@@ -1269,8 +1269,8 @@ class TestMTFGateInScanner:
             "thesis_adj": 2.0,
         }
         with _common_gate_patches(scanner, [
-            patch("src.scanner.check_mtf_gate", return_value=(True, "")),
             patch("src.scanner._scoring_engine.score", return_value=high_score),
+            patch("src.scanner.check_mtf_gate", return_value=(True, "")),
         ]):
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
 

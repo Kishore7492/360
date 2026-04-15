@@ -2001,13 +2001,13 @@ class Scanner:
         return "other"
 
     @staticmethod
-    def _setup_class_name(setup_class_name: Any) -> str:
-        if isinstance(setup_class_name, str):
-            return setup_class_name or "UNKNOWN"
-        return str(getattr(setup_class_name, "value", setup_class_name) or "UNKNOWN")
+    def _normalize_setup_class(setup_class: Any) -> str:
+        if isinstance(setup_class, str):
+            return setup_class or "UNKNOWN"
+        return str(getattr(setup_class, "value", setup_class) or "UNKNOWN")
 
     def _path_funnel_key(self, stage: str, chan_name: str, setup_class_name: Any) -> str:
-        _setup_name = self._setup_class_name(setup_class_name)
+        _setup_name = self._normalize_setup_class(setup_class_name)
         _family = self._setup_family_for_channel(chan_name, _setup_name)
         return f"{stage}:{chan_name}:{_family}:{_setup_name}"
 
@@ -3279,6 +3279,29 @@ class Scanner:
         self._populate_signal_context(sig, volume_24h, ctx)
         return sig, cross_verified
 
+    def _get_channel_candidate(
+        self,
+        *,
+        chan: Any,
+        chan_name: str,
+        symbol: str,
+        ctx_for_chan: ScanContext,
+        volume_24h: float,
+    ) -> Any:
+        try:
+            return chan.evaluate(
+                symbol=symbol,
+                candles=ctx_for_chan.candles,
+                indicators=ctx_for_chan.indicators,
+                smc_data=ctx_for_chan.smc_data,
+                spread_pct=ctx_for_chan.spread_pct,
+                volume_24h_usd=volume_24h,
+                regime=ctx_for_chan.regime_result.regime.value,
+            )
+        except Exception as _exc:
+            log.debug("Channel {} eval error for {}: {}", chan_name, symbol, _exc)
+            return None
+
     async def _scan_symbol(self, symbol: str, volume_24h: float) -> None:
         """Run all channel evaluations for one symbol."""
         ctx = await self._build_scan_context(symbol, volume_24h)
@@ -3349,19 +3372,13 @@ class Scanner:
                 # is processed independently through the gate chain.  Same-direction
                 # signals from the same symbol are deduplicated here so that only one
                 # setup per direction can enter _pending_signals per cycle.
-                try:
-                    _raw_result = chan.evaluate(
-                        symbol=symbol,
-                        candles=ctx_for_chan.candles,
-                        indicators=ctx_for_chan.indicators,
-                        smc_data=ctx_for_chan.smc_data,
-                        spread_pct=ctx_for_chan.spread_pct,
-                        volume_24h_usd=volume_24h,
-                        regime=ctx_for_chan.regime_result.regime.value,
-                    )
-                except Exception as _exc:
-                    log.debug("Channel {} eval error for {}: {}", chan_name, symbol, _exc)
-                    _raw_result = []
+                _raw_result = self._get_channel_candidate(
+                    chan=chan,
+                    chan_name=chan_name,
+                    symbol=symbol,
+                    ctx_for_chan=ctx_for_chan,
+                    volume_24h=volume_24h,
+                )
                 # Normalise: real ScalpChannel returns list; legacy mocks return Signal|None
                 if isinstance(_raw_result, list):
                     _raw_sigs = _raw_result
@@ -3379,7 +3396,7 @@ class Scanner:
                 # Format: direction → (best_prepared_sig, chan_name)
                 _scalp_dir_best: dict = {}
                 for _raw_sig in _raw_sigs:
-                    _raw_setup = self._setup_class_name(getattr(_raw_sig, "setup_class", "UNKNOWN"))
+                    _raw_setup = self._normalize_setup_class(getattr(_raw_sig, "setup_class", None))
                     self._increment_path_funnel("generated", chan_name, _raw_setup)
                     _scored_before = self._path_stage_total("scored", chan_name)
                     # cross_verified is None for all scalp channels (cross-exchange
@@ -3434,23 +3451,17 @@ class Scanner:
                     self._setup_eval_counts[_sc] += 1
                     _pending_signals.append((_best_sig, _best_chan))
             else:
-                try:
-                    _raw_result = chan.evaluate(
-                        symbol=symbol,
-                        candles=ctx_for_chan.candles,
-                        indicators=ctx_for_chan.indicators,
-                        smc_data=ctx_for_chan.smc_data,
-                        spread_pct=ctx_for_chan.spread_pct,
-                        volume_24h_usd=volume_24h,
-                        regime=ctx_for_chan.regime_result.regime.value,
-                    )
-                except Exception as _exc:
-                    log.debug("Channel {} eval error for {}: {}", chan_name, symbol, _exc)
-                    _raw_result = None
+                _raw_result = self._get_channel_candidate(
+                    chan=chan,
+                    chan_name=chan_name,
+                    symbol=symbol,
+                    ctx_for_chan=ctx_for_chan,
+                    volume_24h=volume_24h,
+                )
                 if _raw_result is None:
                     self._channel_funnel_counters[f"no_candidate_generated:{chan_name}"] += 1
                     continue
-                _raw_setup = self._setup_class_name(getattr(_raw_result, "setup_class", "UNKNOWN"))
+                _raw_setup = self._normalize_setup_class(getattr(_raw_result, "setup_class", None))
                 self._increment_path_funnel("generated", chan_name, _raw_setup)
                 _scored_before = self._path_stage_total("scored", chan_name)
                 sig, cross_verified = await self._prepare_signal(
