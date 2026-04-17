@@ -31,6 +31,12 @@ def test_pr7c_target_setup_filter_is_explicit_and_narrow():
     assert Scanner._is_pr7c_target_setup("BREAKOUT_RETEST") is False
 
 
+def test_tier_compression_helper_is_doctrine_aligned():
+    assert Scanner._is_tier_compressed("B", "WATCHLIST") is True
+    assert Scanner._is_tier_compressed("A+", "B") is False
+    assert Scanner._is_tier_compressed("WATCHLIST", "WATCHLIST") is False
+
+
 def test_target_path_tier_migration_summary_tracks_compression_signal():
     scanner = _make_scanner()
     scanner._record_target_path_tier_migration(

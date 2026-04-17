@@ -2223,17 +2223,24 @@ class Scanner:
         """Build operator-facing tier migration summary for PR-7C target paths."""
         _summary: Dict[str, Dict[str, int]] = {}
         for _key, _count in self._target_path_tier_migration_counters.items():
-            try:
-                _family, _setup, _transition = _key.split(":", 2)
-                _pre_tier, _post_tier = _transition.split("->", 1)
-            except ValueError:
+            _segments = _key.split(":")
+            if len(_segments) != 3:
                 continue
+            _family, _setup, _transition = _segments
+            _tiers = _transition.split("->")
+            if len(_tiers) != 2:
+                continue
+            _pre_tier, _post_tier = _tiers
             _token = self._target_path_summary_token(_setup, _family)
             _bucket = _summary.setdefault(_token, {})
             _bucket[_transition] = _bucket.get(_transition, 0) + _count
-            if _pre_tier in {"A+", "B"} and _post_tier not in {"A+", "B"}:
+            if self._is_tier_compressed(_pre_tier, _post_tier):
                 _bucket["pre_B_or_A+_compressed"] = _bucket.get("pre_B_or_A+_compressed", 0) + _count
         return _summary
+
+    @staticmethod
+    def _is_tier_compressed(pre_tier: str, post_tier: str) -> bool:
+        return pre_tier in {"A+", "B"} and post_tier not in {"A+", "B"}
 
     def _build_target_path_penalty_summary(self) -> Dict[str, Dict[str, int]]:
         """Build operator-facing per-path penalty gate hit counts for PR-7C."""
@@ -2257,18 +2264,18 @@ class Scanner:
             if not _parts:
                 continue
             if _parts[0] == "lifecycle":
-                if len(_parts) < 5:
+                if len(_parts) != 5:
                     continue
-                _outcome, _family, _setup = _parts[1], _parts[3], _parts[4]
+                _, _outcome, _, _family, _setup = _parts
                 if not self._is_pr7c_target_setup(_setup):
                     continue
                 _token = self._target_path_summary_token(_setup, _family)
                 _bucket = _outcome_summary.setdefault(_token, {})
                 _bucket[_outcome] = _bucket.get(_outcome, 0) + _count
                 continue
-            if len(_parts) < 4:
+            if len(_parts) != 4:
                 continue
-            _stage, _family, _setup = _parts[0], _parts[2], _parts[3]
+            _stage, _, _family, _setup = _parts
             if not self._is_pr7c_target_setup(_setup):
                 continue
             _token = self._target_path_summary_token(_setup, _family)
@@ -3293,7 +3300,7 @@ class Scanner:
         self._increment_path_funnel("scored", chan_name, _sc)
         self._suppression_counters[f"candidate_reached_scoring:{_sc}"] += 1
         self._scoring_tier_counters[f"candidate_reached_scoring:{_sc}"] += 1
-        _pre_penalty_tier = classify_signal_tier(sig.confidence)
+        _pre_penalty_tier_for_migration = classify_signal_tier(sig.confidence)
         # ── PR_09: Composite Signal Scoring Engine ────────────────────────
         # Overwrites sig.confidence and sig.signal_tier with the structured
         # 0-100 composite score.  Merges new dimension breakdown into the
@@ -3355,14 +3362,14 @@ class Scanner:
             # Merge new dimension scores into component_scores (preserves existing keys)
             sig.component_scores.update(_score_result)
             sig.confidence = _score_result["total"]
-            _pre_penalty_tier = classify_signal_tier(sig.confidence)
+            _pre_penalty_tier_for_migration = classify_signal_tier(sig.confidence)
             self._record_scoring_distribution(
                 phase="pre_penalty",
                 chan_name=chan_name,
                 setup_family=_sf,
                 setup_class=_sc,
                 score=sig.confidence,
-                tier=_pre_penalty_tier,
+                tier=_pre_penalty_tier_for_migration,
             )
             if _score_result["total"] >= 80:
                 sig.signal_tier = "A+"
@@ -3399,7 +3406,7 @@ class Scanner:
                 self._record_target_path_tier_migration(
                     setup_family=_sf,
                     setup_class=_sc,
-                    pre_tier=_pre_penalty_tier,
+                    pre_tier=_pre_penalty_tier_for_migration,
                     post_tier=_below_tier,
                 )
                 return _reject("filtered", cross_verified)
@@ -3442,7 +3449,7 @@ class Scanner:
         self._record_target_path_tier_migration(
             setup_family=_sf,
             setup_class=_sc,
-            pre_tier=_pre_penalty_tier,
+            pre_tier=_pre_penalty_tier_for_migration,
             post_tier=sig.signal_tier,
         )
 
