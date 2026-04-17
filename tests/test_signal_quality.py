@@ -1612,6 +1612,83 @@ class TestFamilyAwareConfidenceScoring:
         result = engine.score(inp)
         assert result["thesis_adj"] == 0.0
 
+    def test_thesis_adj_positive_for_reclaim_retest_family(self, engine):
+        """SR_FLIP_RETEST receives bounded reclaim/retest thesis credit."""
+        inp = self._base_inputs(
+            setup_class="SR_FLIP_RETEST",
+            regime="RANGING",
+            mss=MagicMock(),
+            cvd_divergence="BULLISH",
+            oi_trend="RISING",
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] > 0.0
+        assert result["thesis_adj"] <= 6.0
+
+    def test_thesis_adj_positive_for_trend_pullback_family(self, engine):
+        """TREND_PULLBACK_EMA receives bounded pullback-quality thesis credit."""
+        inp = self._base_inputs(
+            setup_class="TREND_PULLBACK_EMA",
+            regime="TRENDING_UP",
+            ema_fast=101.0,
+            ema_slow=99.0,
+            rsi_last=49.0,
+            volume_last_usd=1_400_000,
+            volume_avg_usd=1_000_000,
+            mtf_score=0.7,
+        )
+        result = engine.score(inp)
+        assert result["thesis_adj"] > 0.0
+        assert result["thesis_adj"] <= 6.0
+
+    def test_thesis_adj_positive_for_breakout_displacement_family(self, engine):
+        """Breakout/displacement paths receive bounded thesis credit."""
+        inp_breakout = self._base_inputs(
+            setup_class="VOLUME_SURGE_BREAKOUT",
+            regime="VOLATILE",
+            mss=MagicMock(),
+            volume_last_usd=2_400_000,
+            volume_avg_usd=1_000_000,
+            mtf_score=0.7,
+        )
+        inp_displacement = self._base_inputs(
+            setup_class="POST_DISPLACEMENT_CONTINUATION",
+            regime="TRENDING_UP",
+            mss=MagicMock(),
+            volume_last_usd=2_000_000,
+            volume_avg_usd=1_000_000,
+            mtf_score=0.8,
+        )
+        r_breakout = engine.score(inp_breakout)
+        r_displacement = engine.score(inp_displacement)
+        assert r_breakout["thesis_adj"] > 0.0
+        assert r_displacement["thesis_adj"] > 0.0
+        assert r_breakout["thesis_adj"] <= 6.0
+        assert r_displacement["thesis_adj"] <= 6.0
+
+    def test_priority_paths_get_regime_affinity_credit(self, engine):
+        """PR-7A regime-affinity corrections grant strong-alignment score where intended."""
+        trend_pullback = self._base_inputs(
+            setup_class="TREND_PULLBACK_EMA",
+            regime="TRENDING_UP",
+        )
+        sr_flip = self._base_inputs(
+            setup_class="SR_FLIP_RETEST",
+            regime="RANGING",
+        )
+        failed_auction = self._base_inputs(
+            setup_class="FAILED_AUCTION_RECLAIM",
+            regime="RANGING",
+        )
+        post_displacement = self._base_inputs(
+            setup_class="POST_DISPLACEMENT_CONTINUATION",
+            regime="VOLATILE",
+        )
+        assert engine._score_regime(trend_pullback) >= 18.0
+        assert engine._score_regime(sr_flip) >= 18.0
+        assert engine._score_regime(failed_auction) >= 18.0
+        assert engine._score_regime(post_displacement) >= 18.0
+
     # ── Reversal family: EMA counter-trend correction ──────────────────
 
     def test_reversal_ema_counter_trend_correction_long(self, engine):
