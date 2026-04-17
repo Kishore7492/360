@@ -1666,6 +1666,32 @@ class TestFamilyAwareConfidenceScoring:
         assert r_breakout["thesis_adj"] <= 6.0
         assert r_displacement["thesis_adj"] <= 6.0
 
+    def test_post_displacement_thesis_adj_not_boosted_by_sweep_presence(self, engine):
+        """POST_DISPLACEMENT_CONTINUATION should not borrow sweep bonus logic."""
+        sweep = MagicMock()
+        sweep.index = -1
+        inp_with_sweep = self._base_inputs(
+            setup_class="POST_DISPLACEMENT_CONTINUATION",
+            regime="TRENDING_UP",
+            mss=MagicMock(),
+            volume_last_usd=2_000_000,
+            volume_avg_usd=1_000_000,
+            mtf_score=0.8,
+            sweeps=[sweep],
+        )
+        inp_without_sweep = self._base_inputs(
+            setup_class="POST_DISPLACEMENT_CONTINUATION",
+            regime="TRENDING_UP",
+            mss=MagicMock(),
+            volume_last_usd=2_000_000,
+            volume_avg_usd=1_000_000,
+            mtf_score=0.8,
+            sweeps=[],
+        )
+        r_with = engine.score(inp_with_sweep)
+        r_without = engine.score(inp_without_sweep)
+        assert r_with["thesis_adj"] == r_without["thesis_adj"]
+
     def test_priority_paths_get_regime_affinity_credit(self, engine):
         """PR-7A regime-affinity corrections grant strong regime component score."""
         trend_pullback = self._base_inputs(

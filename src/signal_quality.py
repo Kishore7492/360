@@ -1488,7 +1488,15 @@ class SignalScoringEngine:
     is not well captured by the globally uniform base dimensions.
     """
 
-    # Setup classes that strongly align with each regime
+    # Setup classes that strongly align with each regime.
+    # PR-7A doctrine note on full-affinity additions:
+    # - SR_FLIP_RETEST in TRENDING_UP/DOWN: this is not merely trend-compatible;
+    #   in live trend regimes, role-flip continuation/retest is a primary way
+    #   trend persistence expresses with controlled invalidation.
+    # - FAILED_AUCTION_RECLAIM in RANGING: failed acceptance + reclaim is a core
+    #   ranging auction behaviour, not a marginal edge case.
+    # - POST_DISPLACEMENT_CONTINUATION in VOLATILE: post-impulse compression and
+    #   re-acceleration is a first-order continuation pattern in high-ATR states.
     _REGIME_SETUP_AFFINITY: Dict[str, List[str]] = {
         "TRENDING_UP": ["LIQUIDITY_SWEEP_REVERSAL", "BREAKOUT_INITIAL", "BREAKOUT_RETEST",
                         "THREE_WHITE_SOLDIERS", "WHALE_MOMENTUM", "VOLUME_SURGE_BREAKOUT",
@@ -1763,6 +1771,8 @@ class SignalScoringEngine:
         (VOLUME_SURGE_BREAKOUT, POST_DISPLACEMENT_CONTINUATION):
         - Expansion/continuation bonus (max +6 pts): volume expansion, MSS
           confirmation, MTF support, and displacement continuation evidence.
+          Sweep presence is intentionally excluded for
+          POST_DISPLACEMENT_CONTINUATION to keep scoring thesis-faithful.
 
         **All other families**: 0 adjustment — shared base scoring remains the
         dominant model.
@@ -1937,8 +1947,6 @@ class SignalScoringEngine:
             if inp.mss is not None:
                 breakout_bonus += 1.5
             if inp.mtf_score >= 0.6:
-                breakout_bonus += 1.0
-            if setup == "POST_DISPLACEMENT_CONTINUATION" and inp.sweeps:
                 breakout_bonus += 1.0
             if inp.regime and inp.regime.upper() in {"TRENDING_UP", "TRENDING_DOWN", "VOLATILE"}:
                 breakout_bonus += 0.5
