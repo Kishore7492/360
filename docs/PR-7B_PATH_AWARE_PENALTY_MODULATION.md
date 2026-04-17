@@ -9,7 +9,7 @@ PR-7B introduces a narrow modulation layer for scanner soft penalties in `src/sc
 - Threshold/tier/router doctrine is unchanged.
 - Modulation is explicit and bounded through auditable mappings:
   - `_PENALTY_MODULATION_BY_SETUP`
-  - `_PENALTY_MODULATION_BY_FAMILY` (fallback only)
+  - path-targeted only (no family fallback inheritance)
 
 ### Targeted modulation scope
 
@@ -38,7 +38,7 @@ Each key records:
 - channel
 - setup family
 - setup class/path
-- source (`path` or `family`)
+- source (`path`)
 - scale factor
 
 Pre/post penalty tier migration telemetry from PR-7A remains unchanged and should be read together with this PR-7B telemetry.

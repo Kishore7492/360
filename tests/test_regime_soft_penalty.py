@@ -21,7 +21,6 @@ from src.channels.base import Signal
 from src.regime import MarketRegime
 from src.scanner import (
     Scanner,
-    _PENALTY_MODULATION_BY_FAMILY,
     _PENALTY_MODULATION_BY_SETUP,
     _REGIME_PENALTY_MULTIPLIER,
 )
@@ -252,19 +251,6 @@ class TestPathAwarePenaltyModulation:
         assert _PENALTY_MODULATION_BY_SETUP["POST_DISPLACEMENT_CONTINUATION"]["volume_div"] == pytest.approx(0.65)
         assert _PENALTY_MODULATION_BY_SETUP["POST_DISPLACEMENT_CONTINUATION"]["vwap"] == pytest.approx(0.80)
         assert _PENALTY_MODULATION_BY_SETUP["CONTINUATION_LIQUIDITY_SWEEP"]["volume_div"] == pytest.approx(0.75)
-        # Family fallback remains narrow and bounded.
-        assert _PENALTY_MODULATION_BY_FAMILY["reclaim_retest"]["vwap"] == pytest.approx(0.75)
-        assert _PENALTY_MODULATION_BY_FAMILY["continuation"]["volume_div"] == pytest.approx(0.85)
-
-    def test_family_fallback_resolves_when_path_not_explicit(self):
-        scanner = _make_scanner()
-        scale, source = scanner._resolve_penalty_modulation_scale(
-            setup_class="UNKNOWN_CONTINUATION_PATH",
-            setup_family="continuation",
-            penalty_key="volume_div",
-        )
-        assert scale == pytest.approx(0.85)
-        assert source == "family"
 
 
 # ---------------------------------------------------------------------------

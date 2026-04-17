@@ -415,11 +415,11 @@ _CHANNEL_PENALTY_WEIGHTS: Dict[str, Dict[str, float]] = {
     "360_SCALP_ORDERBLOCK":  {"vwap": 12.0, "kill_zone": 10.0, "oi": 8.0,  "volume_div": 12.0, "cluster": 10.0, "spoof": 12.0},
 }
 
-# PR-7B: Path/family-aware modulation of soft-penalty base weights.
+# PR-7B: Path-aware modulation of soft-penalty base weights.
 # Doctrine guardrails:
 # - penalties are preserved (scale > 0)
 # - hard gates are unchanged
-# - modulation is narrow and explicit (path-first, family fallback)
+# - modulation is narrow and explicit (path-targeted only)
 _PENALTY_MODULATION_BY_SETUP: Dict[str, Dict[str, float]] = {
     "SR_FLIP_RETEST": {"vwap": 0.60},
     "FAILED_AUCTION_RECLAIM": {"vwap": 0.60},
@@ -427,11 +427,6 @@ _PENALTY_MODULATION_BY_SETUP: Dict[str, Dict[str, float]] = {
     "POST_DISPLACEMENT_CONTINUATION": {"volume_div": 0.65, "vwap": 0.80},
     "TREND_PULLBACK_EMA": {"kill_zone": 0.70},
     "CONTINUATION_LIQUIDITY_SWEEP": {"volume_div": 0.75},
-}
-
-_PENALTY_MODULATION_BY_FAMILY: Dict[str, Dict[str, float]] = {
-    "reclaim_retest": {"vwap": 0.75},
-    "continuation": {"volume_div": 0.85},
 }
 _PENALTY_MODULATION_MIN_SCALE: float = 0.1
 _PENALTY_MODULATION_MAX_SCALE: float = 1.0
@@ -2178,9 +2173,6 @@ class Scanner:
         _path_scale = _PENALTY_MODULATION_BY_SETUP.get(setup_class, {}).get(penalty_key)
         if _path_scale is not None:
             return self._clamp_penalty_modulation_scale(_path_scale), "path"
-        _family_scale = _PENALTY_MODULATION_BY_FAMILY.get(setup_family, {}).get(penalty_key)
-        if _family_scale is not None:
-            return self._clamp_penalty_modulation_scale(_family_scale), "family"
         return 1.0, "none"
 
     @staticmethod
