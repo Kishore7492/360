@@ -1559,6 +1559,19 @@ class SignalScoringEngine:
 
     # Liquidation cap used for scaling liq-volume bonus (in USD)
     _LIQ_VOL_THESIS_CAP_USD: float = 5_000_000.0
+    # Family-thesis heuristics used by PR-7A scoring corrections.
+    _FRESH_SWEEP_INDEX_THRESHOLD: int = -3
+    # LONG and SHORT pullback ranges intentionally overlap in the neutral band;
+    # LONG uses a slightly tighter upper bound to avoid late-cycle overbought
+    # entries, while SHORT allows a slightly wider upper bound.
+    _PULLBACK_RSI_LONG_MIN: float = 40.0
+    _PULLBACK_RSI_LONG_MAX: float = 58.0
+    _PULLBACK_RSI_SHORT_MIN: float = 42.0
+    _PULLBACK_RSI_SHORT_MAX: float = 60.0
+    _PULLBACK_VOL_RATIO_NORMAL_MIN: float = 0.9
+    _PULLBACK_VOL_RATIO_NORMAL_MAX: float = 2.2
+    _RECLAIM_FRESH_SWEEP_BONUS: float = 1.0
+    _RECLAIM_STALE_SWEEP_BONUS: float = 0.5
 
     def score(self, inp: ScoringInput) -> Dict[str, float]:
         """Return a dict with per-dimension scores and a 'total' key.
@@ -1856,7 +1869,11 @@ class SignalScoringEngine:
                 reclaim_bonus += 1.5
             sweeps = inp.sweeps or []
             if sweeps:
-                reclaim_bonus += 1.0 if sweeps[0].index >= -3 else 0.5
+                reclaim_bonus += (
+                    self._RECLAIM_FRESH_SWEEP_BONUS
+                    if sweeps[0].index >= self._FRESH_SWEEP_INDEX_THRESHOLD
+                    else self._RECLAIM_STALE_SWEEP_BONUS
+                )
             if inp.cvd_divergence is not None:
                 cvd_aligned = (
                     (inp.direction == "LONG" and inp.cvd_divergence == "BULLISH") or
@@ -1879,17 +1896,28 @@ class SignalScoringEngine:
                     pullback_bonus += 2.0
             if inp.rsi_last is not None:
                 in_pullback_zone = (
-                    (inp.direction == "LONG" and 40.0 <= inp.rsi_last <= 58.0) or
-                    (inp.direction == "SHORT" and 42.0 <= inp.rsi_last <= 60.0)
+                    (
+                        inp.direction == "LONG"
+                        and self._PULLBACK_RSI_LONG_MIN <= inp.rsi_last <= self._PULLBACK_RSI_LONG_MAX
+                    )
+                    or (
+                        inp.direction == "SHORT"
+                        and self._PULLBACK_RSI_SHORT_MIN <= inp.rsi_last <= self._PULLBACK_RSI_SHORT_MAX
+                    )
                 )
                 if in_pullback_zone:
                     pullback_bonus += 1.5
             if inp.volume_avg_usd > 0 and inp.volume_last_usd > 0:
                 ratio = inp.volume_last_usd / inp.volume_avg_usd
-                if 0.9 <= ratio <= 2.2:
+                if self._PULLBACK_VOL_RATIO_NORMAL_MIN <= ratio <= self._PULLBACK_VOL_RATIO_NORMAL_MAX:
                     pullback_bonus += 1.5
-                elif ratio > 2.2:
+                elif ratio > self._PULLBACK_VOL_RATIO_NORMAL_MAX:
+                    # Elevated pullback volume can still confirm participation,
+                    # but earns reduced credit vs the normal pullback range.
                     pullback_bonus += 0.5
+                elif ratio < self._PULLBACK_VOL_RATIO_NORMAL_MIN:
+                    # Thin pullbacks do not add thesis confidence.
+                    pullback_bonus += 0.0
             if inp.mtf_score >= 0.6:
                 pullback_bonus += 1.0
             if inp.regime and inp.regime.upper() in {"TRENDING_UP", "TRENDING_DOWN"}:

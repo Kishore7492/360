@@ -482,6 +482,10 @@ class ScanContext:
     regime_context: Any = None  # RegimeContext from regime detector
 
 
+_SCORE_MIN: float = 0.0
+_SCORE_MAX: float = 100.0
+
+
 class Scanner:
     """Scans all pairs across channel strategies on every cycle.
 
@@ -2109,8 +2113,8 @@ class Scanner:
     @staticmethod
     def _score_band(score: float) -> str:
         """Return a low-cardinality score band token for telemetry."""
-        _score = max(0.0, min(100.0, float(score)))
-        if _score >= 100.0:
+        _score = max(_SCORE_MIN, min(_SCORE_MAX, float(score)))
+        if _score >= _SCORE_MAX:
             return "100"
         _lower = int(_score // 10) * 10
         _upper = _lower + 9
@@ -3180,13 +3184,14 @@ class Scanner:
                 self._suppression_counters[f"score_below50:{chan_name}"] += 1
                 self._suppression_counters[f"score_below50:{_sc}"] += 1
                 self._scoring_tier_counters[f"score_below50:{_sc}"] += 1
+                _below_tier = classify_signal_tier(sig.confidence)
                 self._record_scoring_distribution(
                     phase="post_penalty",
                     chan_name=chan_name,
                     setup_family=_sf,
                     setup_class=_sc,
                     score=sig.confidence,
-                    tier=classify_signal_tier(sig.confidence),
+                    tier=_below_tier,
                 )
                 return _reject("filtered", cross_verified)
             log.debug(

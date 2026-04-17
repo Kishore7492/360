@@ -1667,7 +1667,7 @@ class TestFamilyAwareConfidenceScoring:
         assert r_displacement["thesis_adj"] <= 6.0
 
     def test_priority_paths_get_regime_affinity_credit(self, engine):
-        """PR-7A regime-affinity corrections grant strong-alignment score where intended."""
+        """PR-7A regime-affinity corrections grant strong regime component score."""
         trend_pullback = self._base_inputs(
             setup_class="TREND_PULLBACK_EMA",
             regime="TRENDING_UP",
@@ -1684,10 +1684,10 @@ class TestFamilyAwareConfidenceScoring:
             setup_class="POST_DISPLACEMENT_CONTINUATION",
             regime="VOLATILE",
         )
-        assert engine._score_regime(trend_pullback) >= 18.0
-        assert engine._score_regime(sr_flip) >= 18.0
-        assert engine._score_regime(failed_auction) >= 18.0
-        assert engine._score_regime(post_displacement) >= 18.0
+        assert engine.score(trend_pullback)["regime"] >= 18.0
+        assert engine.score(sr_flip)["regime"] >= 18.0
+        assert engine.score(failed_auction)["regime"] >= 18.0
+        assert engine.score(post_displacement)["regime"] >= 18.0
 
     # ── Reversal family: EMA counter-trend correction ──────────────────
 
