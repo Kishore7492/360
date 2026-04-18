@@ -4,6 +4,24 @@ from collections import defaultdict
 def _lbl(r):
     return (r.get("outcome_label") or r.get("outcome") or r.get("status") or "").upper()
 
+
+def _fmt_sec(value):
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value):.1f}s"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def _fmt_min(value):
+    if value is None:
+        return "n/a"
+    try:
+        return f"{float(value) / 60.0:.2f}m"
+    except (TypeError, ValueError):
+        return "n/a"
+
 # Deliberately-classified outcome sets based on live-observed labels
 TP_LABELS  = {"TP", "TP1", "TP2", "TP3", "TP_HIT", "TP1_HIT", "TP2_HIT", "TP3_HIT", "TAKE_PROFIT", "WIN"}
 SL_LABELS  = {"SL", "SL_HIT", "STOP_LOSS", "LOSS"}
@@ -35,6 +53,31 @@ try:
         setup = r.get("setup_class") or r.get("channel") or r.get("setup_type") or r.get("signal_type") or "?"
         pnl = r.get("pnl_pct") or 0.0
         print(f"{i:<3} {r.get('symbol','?'):<14} {r.get('direction','?'):<6} {setup:<32} {r.get('confidence',0):>6.1f} {pnl:>+7.2f}% {outcome:<14} {ts_str}")
+        if any(
+            r.get(field) is not None
+            for field in (
+                "create_to_dispatch_sec",
+                "dispatch_to_first_adverse_sec",
+                "dispatch_to_first_favorable_sec",
+                "create_to_first_breach_sec",
+                "create_to_terminal_sec",
+                "first_breach_to_terminal_sec",
+            )
+        ):
+            print(
+                "    lifecycle(raw): "
+                f"c→d {_fmt_sec(r.get('create_to_dispatch_sec'))} | "
+                f"d→adv {_fmt_sec(r.get('dispatch_to_first_adverse_sec'))} | "
+                f"d→fav {_fmt_sec(r.get('dispatch_to_first_favorable_sec'))} | "
+                f"c→breach {_fmt_sec(r.get('create_to_first_breach_sec'))} | "
+                f"c→term {_fmt_sec(r.get('create_to_terminal_sec'))} | "
+                f"breach→term {_fmt_sec(r.get('first_breach_to_terminal_sec'))}"
+            )
+            print(
+                "    lifecycle(min): "
+                f"c→breach {_fmt_min(r.get('create_to_first_breach_sec'))} | "
+                f"c→term {_fmt_min(r.get('create_to_terminal_sec'))}"
+            )
 
     # --- By-path/setup breakdown (full history) ---
     print("")

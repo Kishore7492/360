@@ -219,6 +219,11 @@ class TestOutcomeRecording:
         assert call_kwargs["quality_tier"] == "A"
         assert call_kwargs["pre_ai_confidence"] == 78.0
         assert call_kwargs["post_ai_confidence"] == 84.0
+        assert call_kwargs["first_sl_touch_timestamp"] is not None
+        assert call_kwargs["terminal_outcome_timestamp"] is not None
+        assert call_kwargs["create_to_terminal_sec"] is not None
+        assert call_kwargs["create_to_first_breach_sec"] is not None
+        assert call_kwargs["create_to_terminal_sec"] >= call_kwargs["create_to_first_breach_sec"]
 
     @pytest.mark.asyncio
     async def test_lifecycle_outcome_callback_receives_signal_and_outcome(self):
@@ -469,6 +474,51 @@ class TestOutcomeRecording:
         assert call_kwargs["pnl_pct"] == pytest.approx(0.4)
         assert call_kwargs["outcome_label"] == "PROFIT_LOCKED"
         assert sig.status == "PROFIT_LOCKED"
+
+    @pytest.mark.asyncio
+    async def test_first_favorable_touch_is_preserved_separately_from_terminal_close(self, monkeypatch):
+        base_time = utcnow()
+        tick = {"n": 0}
+
+        def _fake_utcnow():
+            current = base_time + timedelta(seconds=tick["n"] * 5)
+            tick["n"] += 1
+            return current
+
+        monkeypatch.setattr("src.trade_monitor.utcnow", _fake_utcnow)
+
+        sig = _make_signal(
+            channel="360_SCALP",
+            direction=Direction.LONG,
+            entry=30000.0,
+            stop_loss=29850.0,
+            tp1=30150.0,
+            tp2=30300.0,
+            tp3=30450.0,
+            age_seconds=0.0,
+        )
+        sig.timestamp = base_time - timedelta(seconds=220)
+        sig.dispatch_timestamp = base_time - timedelta(seconds=210)
+
+        active = {sig.signal_id: sig}
+        monitor, removed, sent, pt, cb = self._build_monitor_with_mocks(active)
+
+        sig.current_price = 30200.0  # TP1 touch (non-terminal)
+        await monitor._evaluate_signal(sig)
+        assert sig.status == "TP1_HIT"
+
+        sig.current_price = 29900.0  # retrace to moved stop (terminal)
+        await monitor._evaluate_signal(sig)
+
+        call_kwargs = pt.record_outcome.call_args.kwargs
+        assert call_kwargs["first_tp_touch_timestamp"] is not None
+        assert call_kwargs["first_sl_touch_timestamp"] is not None
+        assert call_kwargs["first_breach_timestamp"] == call_kwargs["first_tp_touch_timestamp"]
+        assert call_kwargs["first_breach_to_terminal_sec"] is not None
+        assert call_kwargs["first_breach_to_terminal_sec"] > 0.0
+        assert call_kwargs["create_to_first_breach_sec"] is not None
+        assert call_kwargs["create_to_terminal_sec"] is not None
+        assert call_kwargs["create_to_first_breach_sec"] < call_kwargs["create_to_terminal_sec"]
 
 
 class TestTrailingStopAfterTP2:

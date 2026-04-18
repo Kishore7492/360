@@ -47,6 +47,18 @@ class SignalRecord:
     spread_pct: float = 0.0
     volume_24h_usd: float = 0.0
     hold_duration_sec: float = 0.0
+    create_timestamp: Optional[float] = None
+    dispatch_timestamp: Optional[float] = None
+    first_sl_touch_timestamp: Optional[float] = None
+    first_tp_touch_timestamp: Optional[float] = None
+    first_breach_timestamp: Optional[float] = None
+    terminal_outcome_timestamp: Optional[float] = None
+    create_to_dispatch_sec: Optional[float] = None
+    dispatch_to_first_adverse_sec: Optional[float] = None
+    dispatch_to_first_favorable_sec: Optional[float] = None
+    create_to_first_breach_sec: Optional[float] = None
+    create_to_terminal_sec: Optional[float] = None
+    first_breach_to_terminal_sec: Optional[float] = None
     max_favorable_excursion_pct: float = 0.0
     max_adverse_excursion_pct: float = 0.0
     timestamp: float = field(default_factory=time.time)
@@ -109,6 +121,18 @@ class PerformanceTracker:
         spread_pct: float = 0.0,
         volume_24h_usd: float = 0.0,
         hold_duration_sec: float = 0.0,
+        create_timestamp: Optional[float] = None,
+        dispatch_timestamp: Optional[float] = None,
+        first_sl_touch_timestamp: Optional[float] = None,
+        first_tp_touch_timestamp: Optional[float] = None,
+        first_breach_timestamp: Optional[float] = None,
+        terminal_outcome_timestamp: Optional[float] = None,
+        create_to_dispatch_sec: Optional[float] = None,
+        dispatch_to_first_adverse_sec: Optional[float] = None,
+        dispatch_to_first_favorable_sec: Optional[float] = None,
+        create_to_first_breach_sec: Optional[float] = None,
+        create_to_terminal_sec: Optional[float] = None,
+        first_breach_to_terminal_sec: Optional[float] = None,
         max_favorable_excursion_pct: float = 0.0,
         max_adverse_excursion_pct: float = 0.0,
         signal_quality_pnl_pct: Optional[float] = None,
@@ -141,6 +165,18 @@ class PerformanceTracker:
             spread_pct=spread_pct,
             volume_24h_usd=volume_24h_usd,
             hold_duration_sec=hold_duration_sec,
+            create_timestamp=create_timestamp,
+            dispatch_timestamp=dispatch_timestamp,
+            first_sl_touch_timestamp=first_sl_touch_timestamp,
+            first_tp_touch_timestamp=first_tp_touch_timestamp,
+            first_breach_timestamp=first_breach_timestamp,
+            terminal_outcome_timestamp=terminal_outcome_timestamp,
+            create_to_dispatch_sec=create_to_dispatch_sec,
+            dispatch_to_first_adverse_sec=dispatch_to_first_adverse_sec,
+            dispatch_to_first_favorable_sec=dispatch_to_first_favorable_sec,
+            create_to_first_breach_sec=create_to_first_breach_sec,
+            create_to_terminal_sec=create_to_terminal_sec,
+            first_breach_to_terminal_sec=first_breach_to_terminal_sec,
             max_favorable_excursion_pct=max_favorable_excursion_pct,
             max_adverse_excursion_pct=max_adverse_excursion_pct,
             signal_quality_pnl_pct=normalize_pnl_pct(sq_pnl),
@@ -1024,6 +1060,22 @@ class PerformanceTracker:
                     item["signal_quality_hit_tp"] = item.get("hit_tp", 0)
                 if "session_name" not in item:
                     item["session_name"] = ""
+                for _field in (
+                    "create_timestamp",
+                    "dispatch_timestamp",
+                    "first_sl_touch_timestamp",
+                    "first_tp_touch_timestamp",
+                    "first_breach_timestamp",
+                    "terminal_outcome_timestamp",
+                    "create_to_dispatch_sec",
+                    "dispatch_to_first_adverse_sec",
+                    "dispatch_to_first_favorable_sec",
+                    "create_to_first_breach_sec",
+                    "create_to_terminal_sec",
+                    "first_breach_to_terminal_sec",
+                ):
+                    if _field not in item:
+                        item[_field] = None
                 self._records.append(SignalRecord(**item))
             for record in self._records:
                 record.pnl_pct = normalize_pnl_pct(record.pnl_pct)
