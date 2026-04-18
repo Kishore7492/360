@@ -118,6 +118,10 @@ class Signal:
     pre_ai_confidence: float = 0.0
     post_ai_confidence: float = 0.0
     timestamp: datetime = field(default_factory=utcnow)
+    dispatch_timestamp: Optional[datetime] = None
+    first_sl_touch_timestamp: Optional[datetime] = None
+    first_tp_touch_timestamp: Optional[datetime] = None
+    terminal_outcome_timestamp: Optional[datetime] = None
     # State for monitoring
     signal_id: str = ""
     status: str = "ACTIVE"  # ACTIVE, TP1_HIT, TP2_HIT, SL_HIT, BREAKEVEN_EXIT, PROFIT_LOCKED, FULL_TP_HIT, CANCELLED

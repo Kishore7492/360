@@ -723,6 +723,7 @@ class SignalRouter:
 
         # ── Latency tracking ─────────────────────────────────────────────────
         signal.posted_at = time.time()
+        signal.dispatch_timestamp = datetime.now(timezone.utc)
         if signal.detected_at is not None:
             latency_ms = (signal.posted_at - signal.detected_at) * 1000.0
             signal.enrichment_latency_ms = latency_ms

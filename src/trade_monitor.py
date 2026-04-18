@@ -246,7 +246,41 @@ class TradeMonitor:
             signal_quality_pnl = sig.best_tp_pnl_pct
             signal_quality_hit_tp = sig.best_tp_hit
 
-        hold_duration_sec = max((utcnow() - sig.timestamp).total_seconds(), 0.0)
+        terminal_ts = utcnow()
+        if hit_sl and sig.first_sl_touch_timestamp is None:
+            sig.first_sl_touch_timestamp = terminal_ts
+        if hit_tp > 0 and sig.first_tp_touch_timestamp is None:
+            sig.first_tp_touch_timestamp = terminal_ts
+        sig.terminal_outcome_timestamp = terminal_ts
+
+        create_ts = sig.timestamp if sig.timestamp is not None else None
+        dispatch_ts_epoch = None
+        if sig.dispatch_timestamp is not None:
+            dispatch_ts_epoch = sig.dispatch_timestamp.timestamp()
+        elif sig.posted_at is not None:
+            dispatch_ts_epoch = float(sig.posted_at)
+
+        create_ts_epoch = create_ts.timestamp() if create_ts is not None else None
+        first_sl_ts_epoch = (
+            sig.first_sl_touch_timestamp.timestamp()
+            if sig.first_sl_touch_timestamp is not None
+            else None
+        )
+        first_tp_ts_epoch = (
+            sig.first_tp_touch_timestamp.timestamp()
+            if sig.first_tp_touch_timestamp is not None
+            else None
+        )
+        terminal_ts_epoch = terminal_ts.timestamp()
+        breach_candidates = [ts for ts in (first_sl_ts_epoch, first_tp_ts_epoch) if ts is not None]
+        first_breach_ts_epoch = min(breach_candidates) if breach_candidates else None
+
+        def _duration(start_ts: Optional[float], end_ts: Optional[float]) -> Optional[float]:
+            if start_ts is None or end_ts is None:
+                return None
+            return max(end_ts - start_ts, 0.0)
+
+        hold_duration_sec = _duration(create_ts_epoch, terminal_ts_epoch) or 0.0
         outcome_label = classify_trade_outcome(
             pnl_pct=actual_pnl,
             hit_tp=hit_tp,
@@ -277,6 +311,18 @@ class TradeMonitor:
                 spread_pct=sig.spread_pct,
                 volume_24h_usd=sig.volume_24h_usd,
                 hold_duration_sec=hold_duration_sec,
+                create_timestamp=create_ts_epoch,
+                dispatch_timestamp=dispatch_ts_epoch,
+                first_sl_touch_timestamp=first_sl_ts_epoch,
+                first_tp_touch_timestamp=first_tp_ts_epoch,
+                first_breach_timestamp=first_breach_ts_epoch,
+                terminal_outcome_timestamp=terminal_ts_epoch,
+                create_to_dispatch_sec=_duration(create_ts_epoch, dispatch_ts_epoch),
+                dispatch_to_first_adverse_sec=_duration(dispatch_ts_epoch, first_sl_ts_epoch),
+                dispatch_to_first_favorable_sec=_duration(dispatch_ts_epoch, first_tp_ts_epoch),
+                create_to_first_breach_sec=_duration(create_ts_epoch, first_breach_ts_epoch),
+                create_to_terminal_sec=_duration(create_ts_epoch, terminal_ts_epoch),
+                first_breach_to_terminal_sec=_duration(first_breach_ts_epoch, terminal_ts_epoch),
                 max_favorable_excursion_pct=sig.max_favorable_excursion_pct,
                 max_adverse_excursion_pct=sig.max_adverse_excursion_pct,
                 signal_quality_pnl_pct=signal_quality_pnl,
@@ -640,6 +686,8 @@ class TradeMonitor:
         # Stop-loss hit — checked BEFORE invalidation so that a price gap
         # through the SL is never exited at a worse price via invalidation.
         if is_long and price <= sig.stop_loss:
+            if sig.first_sl_touch_timestamp is None:
+                sig.first_sl_touch_timestamp = utcnow()
             self._set_realized_pnl(sig, sig.stop_loss)
             outcome_label = self._apply_final_outcome(sig, hit_tp=0, hit_sl=True)
             outcome_event = _STOP_OUTCOME_MESSAGES.get(outcome_label, "🔴 EXIT")
@@ -649,6 +697,8 @@ class TradeMonitor:
             self._remove(sig.signal_id)
             return
         if not is_long and price >= sig.stop_loss:
+            if sig.first_sl_touch_timestamp is None:
+                sig.first_sl_touch_timestamp = utcnow()
             self._set_realized_pnl(sig, sig.stop_loss)
             outcome_label = self._apply_final_outcome(sig, hit_tp=0, hit_sl=True)
             outcome_event = _STOP_OUTCOME_MESSAGES.get(outcome_label, "🔴 EXIT")
@@ -683,6 +733,8 @@ class TradeMonitor:
         # TP hits (progressive)
         if is_long:
             if sig.tp3 and price >= sig.tp3 and sig.status != "TP3_HIT":
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 tp3_pnl = calculate_trade_pnl_pct(
                     entry_price=sig.entry, exit_price=sig.tp3, direction=sig.direction.value
                 )
@@ -702,6 +754,8 @@ class TradeMonitor:
                 self._remove(sig.signal_id)
                 return
             if price >= sig.tp2 and sig.status not in ("TP2_HIT", "TP3_HIT"):
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 sig.status = "TP2_HIT"
                 await self._post_update(sig, "🎯🎯 TP2 HIT")
                 # Snapshot best-TP PnL for signal quality stats
@@ -720,6 +774,8 @@ class TradeMonitor:
                     except Exception as _exc:
                         log.warning("Partial TP2 close failed for {}: {}", sig.symbol, _exc)
             if price >= sig.tp1 and sig.status not in ("TP1_HIT", "TP2_HIT", "TP3_HIT"):
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 sig.status = "TP1_HIT"
                 await self._post_update(sig, "🎯 TP1 HIT ✅")
                 # Snapshot best-TP PnL for signal quality stats (only if TP2 not already hit)
@@ -743,6 +799,8 @@ class TradeMonitor:
                         log.warning("Partial TP1 close failed for {}: {}", sig.symbol, _exc)
         else:
             if sig.tp3 and price <= sig.tp3 and sig.status != "TP3_HIT":
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 tp3_pnl = calculate_trade_pnl_pct(
                     entry_price=sig.entry, exit_price=sig.tp3, direction=sig.direction.value
                 )
@@ -762,6 +820,8 @@ class TradeMonitor:
                 self._remove(sig.signal_id)
                 return
             if price <= sig.tp2 and sig.status not in ("TP2_HIT", "TP3_HIT"):
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 sig.status = "TP2_HIT"
                 await self._post_update(sig, "🎯🎯 TP2 HIT")
                 # Snapshot best-TP PnL for signal quality stats
@@ -779,6 +839,8 @@ class TradeMonitor:
                     except Exception as _exc:
                         log.warning("Partial TP2 close failed for {}: {}", sig.symbol, _exc)
             if price <= sig.tp1 and sig.status not in ("TP1_HIT", "TP2_HIT", "TP3_HIT"):
+                if sig.first_tp_touch_timestamp is None:
+                    sig.first_tp_touch_timestamp = utcnow()
                 sig.status = "TP1_HIT"
                 await self._post_update(sig, "🎯 TP1 HIT ✅")
                 # Snapshot best-TP PnL for signal quality stats (only if TP2 not already hit)

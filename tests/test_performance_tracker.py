@@ -46,6 +46,16 @@ class TestPerformanceTrackerRecording:
             spread_pct=0.008,
             volume_24h_usd=15_000_000.0,
             hold_duration_sec=3600.0,
+            create_timestamp=1000.0,
+            dispatch_timestamp=1010.0,
+            first_sl_touch_timestamp=1200.0,
+            first_breach_timestamp=1200.0,
+            terminal_outcome_timestamp=1300.0,
+            create_to_dispatch_sec=10.0,
+            dispatch_to_first_adverse_sec=190.0,
+            create_to_first_breach_sec=200.0,
+            create_to_terminal_sec=300.0,
+            first_breach_to_terminal_sec=100.0,
         )
         assert path.exists()
         with open(path) as f:
@@ -54,6 +64,37 @@ class TestPerformanceTrackerRecording:
         assert data[0]["signal_id"] == "S1"
         assert data[0]["setup_class"] == "BREAKOUT_RETEST"
         assert data[0]["quality_tier"] == "A"
+        assert data[0]["create_timestamp"] == 1000.0
+        assert data[0]["terminal_outcome_timestamp"] == 1300.0
+        assert data[0]["create_to_first_breach_sec"] == 200.0
+
+    def test_load_old_records_defaults_new_lifecycle_fields(self, tmp_path):
+        path = tmp_path / "perf.json"
+        path.write_text(
+            json.dumps(
+                [
+                    {
+                        "signal_id": "S1",
+                        "channel": "360_SCALP",
+                        "symbol": "BTCUSDT",
+                        "direction": "LONG",
+                        "entry": 50000.0,
+                        "hit_tp": 0,
+                        "hit_sl": True,
+                        "pnl_pct": -0.8,
+                        "confidence": 70.0,
+                        "timestamp": 1000.0,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        pt = PerformanceTracker(storage_path=str(path))
+        record = pt._records[0]
+        assert record.create_timestamp is None
+        assert record.dispatch_timestamp is None
+        assert record.first_breach_timestamp is None
+        assert record.create_to_terminal_sec is None
 
     def test_loads_from_file(self, tmp_path):
         path = tmp_path / "perf.json"
