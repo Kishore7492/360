@@ -1565,7 +1565,21 @@ class TestFamilySemanticMTFPolicy:
         assert allowed is False
         assert reason == "semantic_fail_no_valid_tf"
 
-    def test_semantic_mtf_requires_near_miss_not_deep_fail(self):
+    def test_semantic_mtf_fails_closed_when_all_timeframes_are_malformed(self):
+        allowed, reason = Scanner._evaluate_family_semantic_mtf(
+            setup_family="reversal",
+            signal_direction="SHORT",
+            mtf_data={
+                "1m": {"ema_fast": "nan", "ema_slow": None, "close": 100.0},
+                "5m": {"ema_fast": 101.0},  # missing keys
+                "1h": {"ema_fast": object(), "ema_slow": 100.0, "close": 99.0},
+            },
+            min_score=0.35,
+        )
+        assert allowed is False
+        assert reason == "semantic_fail_no_valid_tf"
+
+    def test_semantic_mtf_rejects_deep_misalignment(self):
         mtf_data = {
             "1m": self._tf(101.0, 100.0, 101.5),   # aligned
             "5m": self._tf(102.0, 101.0, 102.5),   # aligned
@@ -1582,7 +1596,7 @@ class TestFamilySemanticMTFPolicy:
         assert allowed is False
         assert reason == "semantic_fail_deep_misalignment"
 
-    def test_semantic_mtf_requires_strong_lower_tf_confirmation(self):
+    def test_semantic_mtf_rejects_insufficient_lower_tf_alignment(self):
         mtf_data = {
             "1m": self._tf(101.0, 100.0, 101.5),   # aligned
             "5m": self._tf(102.0, 101.0, 102.0),   # neutral

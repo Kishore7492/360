@@ -2202,9 +2202,7 @@ class Scanner:
         if not (higher_aligned >= 1 and higher_opposed == 0):
             return False, "semantic_fail_higher_tf_weak"
 
-        if lower_states and higher_states:
-            return True, "family_semantic_mtf_pass"
-        return False, "semantic_fail_missing_tf_context"
+        return True, "family_semantic_mtf_pass"
 
     def _resolve_origin_setup_class(self, sig: Any) -> str:
         _origin_setup_raw = getattr(sig, "origin_setup_class", None)
