@@ -1264,6 +1264,7 @@ class TestMTFGateInScanner:
 
         with _common_gate_patches(scanner, [
             patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.FAILED_AUCTION_RECLAIM)),
+            patch.object(scanner, "_evaluate_family_semantic_mtf", return_value=(False, "family_semantic_mtf_fail")),
             patch("src.scanner.check_mtf_gate", mock_mtf),
         ]):
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
@@ -1293,6 +1294,7 @@ class TestMTFGateInScanner:
 
         with _common_gate_patches(scanner, [
             patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.FAILED_AUCTION_RECLAIM)),
+            patch.object(scanner, "_evaluate_family_semantic_mtf", return_value=(False, "family_semantic_mtf_fail")),
             patch("src.scanner.check_mtf_gate", return_value=(False, "MTF misaligned")),
         ]):
             await scanner._scan_symbol("BTCUSDT", 10_000_000)
@@ -1300,6 +1302,8 @@ class TestMTFGateInScanner:
         signal_queue.put.assert_not_awaited()
         assert scanner._suppression_counters["mtf_gate_family:360_SCALP:reclaim_retest"] == 1
         assert scanner._suppression_counters["mtf_gate_setup:360_SCALP:FAILED_AUCTION_RECLAIM"] == 1
+        assert scanner._suppression_counters["mtf_semantic_eval:360_SCALP:reclaim_retest"] == 1
+        assert scanner._suppression_counters["mtf_semantic_fail:360_SCALP:reclaim_retest"] == 1
 
     @pytest.mark.asyncio
     async def test_mtf_policy_saved_counter_when_relaxed_policy_preserves_candidate(self):
@@ -1317,6 +1321,24 @@ class TestMTFGateInScanner:
         assert mock_mtf.call_args_list[0].kwargs["min_score"] == pytest.approx(0.35)
         assert mock_mtf.call_args_list[1].kwargs["min_score"] == pytest.approx(0.6)
         assert scanner._suppression_counters["mtf_policy_saved:360_SCALP:reclaim_retest"] == 1
+
+    @pytest.mark.asyncio
+    async def test_mtf_semantic_path_saves_reclaim_family_when_generic_fails(self):
+        scanner, signal_queue = self._scanner_and_queue()
+
+        with _common_gate_patches(scanner, [
+            patch.object(scanner, "_evaluate_setup", return_value=_setup_pass(SetupClass.FAILED_AUCTION_RECLAIM)),
+            patch.object(scanner, "_evaluate_family_semantic_mtf", return_value=(True, "family_semantic_mtf_pass")),
+            patch("src.scanner.check_mtf_gate", return_value=(False, "MTF misaligned")),
+        ]):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        signal_queue.put.assert_awaited_once()
+        assert scanner._suppression_counters["mtf_semantic_eval:360_SCALP:reclaim_retest"] == 1
+        assert scanner._suppression_counters["mtf_semantic_pass:360_SCALP:reclaim_retest"] == 1
+        assert scanner._suppression_counters["mtf_semantic_saved:360_SCALP:reclaim_retest"] == 1
+        assert scanner._suppression_counters["mtf_semantic_saved_setup:360_SCALP:FAILED_AUCTION_RECLAIM"] == 1
+        assert scanner._suppression_counters["mtf_gate_family:360_SCALP:reclaim_retest"] == 0
 
     @pytest.mark.asyncio
     async def test_risk_plan_geometry_cap_telemetry(self):
@@ -1377,6 +1399,9 @@ class TestMTFGateInScanner:
         ] == 1
         assert scanner._path_funnel_counters[
             "geometry:risk_plan:rejected_reason:sl_too_wide:360_SCALP:breakout_momentum:VOLUME_SURGE_BREAKOUT"
+        ] == 1
+        assert scanner._suppression_counters[
+            "geometry_rejected_risk_plan_reason:360_SCALP:breakout_momentum:sl_too_wide"
         ] == 1
 
     @pytest.mark.asyncio
