@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 TP_LABELS = {"TP", "TP1", "TP2", "TP3", "TP_HIT", "TP1_HIT", "TP2_HIT", "TP3_HIT", "TAKE_PROFIT", "WIN"}
 SL_LABELS = {"SL", "SL_HIT", "STOP_LOSS", "LOSS"}
+_FUNNEL_KEY_PARTS = 4
 
 
 def _median(values: Iterable[Optional[float]]) -> Optional[float]:
@@ -30,6 +31,16 @@ def _outcome_label(record: Dict[str, Any]) -> str:
     return str(
         record.get("outcome_label") or record.get("outcome") or record.get("status") or ""
     ).upper()
+
+
+def _parse_funnel_key(key: str) -> Optional[Tuple[str, str, str, str]]:
+    # Funnel telemetry key contract from scanner:
+    # stage:channel:family:setup (setup can contain ':' so split only 3 times).
+    parts = str(key).split(":", _FUNNEL_KEY_PARTS - 1)
+    if len(parts) != _FUNNEL_KEY_PARTS:
+        return None
+    stage, chan_name, family, setup = parts
+    return stage, chan_name, family, setup
 
 
 def _parse_csv_filter(raw: Optional[str]) -> List[str]:
@@ -62,10 +73,10 @@ def parse_path_funnel_from_logs(log_text: str, channel: str) -> Dict[str, int]:
         if not isinstance(parsed, dict):
             continue
         for key, value in parsed.items():
-            parts = str(key).split(":", 3)
-            if len(parts) != 4:
+            parsed_key = _parse_funnel_key(str(key))
+            if parsed_key is None:
                 continue
-            stage, chan_name, _, _ = parts
+            _, chan_name, _, _ = parsed_key
             if chan_name != channel:
                 continue
             try:
@@ -80,10 +91,10 @@ def parse_path_funnel_from_logs(log_text: str, channel: str) -> Dict[str, int]:
 def stage_totals_by_setup(funnel_counters: Dict[str, int], channel: str) -> Dict[str, Dict[str, int]]:
     by_setup: Dict[str, Dict[str, int]] = {}
     for key, value in funnel_counters.items():
-        parts = str(key).split(":", 3)
-        if len(parts) != 4:
+        parsed_key = _parse_funnel_key(str(key))
+        if parsed_key is None:
             continue
-        stage, chan_name, family, setup = parts
+        stage, chan_name, family, setup = parsed_key
         if chan_name != channel:
             continue
         bucket = by_setup.setdefault(setup, {"family": family})
@@ -381,7 +392,13 @@ def build_snapshot(
         if metrics.get("generated", 0) > 0 and metrics.get("emitted", 0) == 0
     ]
 
-    recommended_target = degraded[0] if degraded else (likely_bottlenecks[0] if likely_bottlenecks else (healthiest[0] if healthiest else None))
+    recommended_target = None
+    if degraded:
+        recommended_target = degraded[0]
+    elif likely_bottlenecks:
+        recommended_target = likely_bottlenecks[0]
+    elif healthiest:
+        recommended_target = healthiest[0]
 
     snapshot = {
         "generated_at": int(now_ts),

@@ -105,9 +105,13 @@ jobs:
             > monitor/raw/engine_current.log || true
 
           if [ "${COMPARE_PREVIOUS_WINDOW}" = "true" ]; then
-            PREV_HOURS=$((LOOKBACK_HOURS * 2))
+            NOW_TS=$(date -u +%s)
+            CURRENT_START_TS=$((NOW_TS - LOOKBACK_HOURS * 3600))
+            PREVIOUS_START_TS=$((CURRENT_START_TS - LOOKBACK_HOURS * 3600))
+            CURRENT_START_ISO=$(date -u -d "@${CURRENT_START_TS}" +%Y-%m-%dT%H:%M:%SZ)
+            PREVIOUS_START_ISO=$(date -u -d "@${PREVIOUS_START_TS}" +%Y-%m-%dT%H:%M:%SZ)
             ssh -i ~/.ssh/vps_key -o ConnectTimeout=30 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-              "docker compose -f ~/360-v2/docker-compose.yml --project-directory ~/360-v2 logs --since=${PREV_HOURS}h --until=${LOOKBACK_HOURS}h engine" \
+              "docker compose -f ~/360-v2/docker-compose.yml --project-directory ~/360-v2 logs --since=${PREVIOUS_START_ISO} --until=${CURRENT_START_ISO} engine" \
               > monitor/raw/engine_previous.log || true
           else
             : > monitor/raw/engine_previous.log
