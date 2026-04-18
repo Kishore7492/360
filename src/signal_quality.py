@@ -987,6 +987,17 @@ def execution_quality_check(
             "Enter after failed auction reclaim is confirmed; "
             "structural invalidation is a return to or below the failed-auction wick extreme."
         )
+    elif setup == SetupClass.SR_FLIP_RETEST:
+        # SR flip retest should anchor to the flipped structural level emitted by the
+        # evaluator, not generic EMA value-area anchoring.
+        anchor = _safe_float(getattr(signal, "sr_flip_level", None), signal.entry)
+        trigger_confirmed = (
+            signal.entry > anchor if signal.direction == Direction.LONG
+            else signal.entry < anchor
+        )
+        note = (
+            "Enter only after breakout close acceptance and retest hold beyond the flipped S/R level."
+        )
     else:
         anchor = ema_anchor
         trigger_confirmed = (
@@ -1007,6 +1018,7 @@ def execution_quality_check(
         SetupClass.WHALE_MOMENTUM: 1.2,
         SetupClass.VOLUME_SURGE_BREAKOUT: 1.5,
         SetupClass.BREAKDOWN_SHORT: 1.5,
+        SetupClass.SR_FLIP_RETEST: 1.2,
         SetupClass.CONTINUATION_LIQUIDITY_SWEEP: 1.3,
         # PDC fires on the re-acceleration breakout immediately after tight consolidation.
         # The entry should be very close to the breakout level; cap at 1.0 ATR to reject

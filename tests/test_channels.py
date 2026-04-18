@@ -1120,9 +1120,11 @@ def _make_srflip_candles_long(n=60, flip_offset=3, level=100.0):
     # Flip candle
     flip_idx = n - flip_offset
     highs[flip_idx] = level + 1.0  # breaks prior_swing_high
+    closes[flip_idx] = level * 1.002  # breakout-close acceptance above flipped level
 
     # Hold confirmation for tightened path: prior close already reclaimed above level.
     closes[-2] = level * 1.001
+    opens[-2] = level * 1.0012
 
     # Current candle: premium retest with clear rejection wick
     closes[-1] = level * 1.001    # 0.1% above level
@@ -1170,9 +1172,11 @@ def _make_srflip_candles_short(n=60, flip_offset=3, level=100.0):
     # Flip candle
     flip_idx = n - flip_offset
     lows[flip_idx] = level - 1.0  # breaks prior_swing_low
+    closes[flip_idx] = level * 0.998  # breakout-close acceptance below flipped level
 
     # Hold confirmation for tightened path: prior close already reclaimed below level.
     closes[-2] = level * 0.999
+    opens[-2] = level * 0.9988
 
     # Current candle: premium retest with clear upper rejection wick
     closes[-1] = level * 0.999    # 0.1% below level
@@ -1268,6 +1272,15 @@ class TestSrFlipRetestRefinements:
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
         assert sig is None, "Flip 10 candles ago (outside 8-closed-candle window) must be rejected."
 
+    def test_wick_only_breakout_is_rejected_without_breakout_close_acceptance(self):
+        """A wick-only breach above prior swing high must not confirm SR flip (LONG)."""
+        m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
+        flip_idx = len(m5["close"]) - 3
+        m5["close"][flip_idx] = 99.95  # closes back below level despite wick breach
+        candles = {"5m": m5}
+        sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
+        assert sig is None, "Wick-only breakout without accepted close must be rejected."
+
     # ── Retest proximity zone ─────────────────────────────────────────────
 
     def test_premium_zone_has_no_proximity_penalty(self):
@@ -1292,6 +1305,7 @@ class TestSrFlipRetestRefinements:
         m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
         m5["close"][-1] = 100.45   # 0.45% above level — extended zone
         m5["open"][-1]  = 100.50   # keep rejection wick valid
+        m5["high"][-1]  = 100.60
         m5["low"][-1]   = 100.25   # lower_wick = 100.50 - 100.25 = 0.25 >> body
         candles = {"5m": m5}
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
@@ -1343,8 +1357,8 @@ class TestSrFlipRetestRefinements:
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
         assert sig is None, "Wick < 20% of body (no meaningful rejection) must be hard-rejected."
 
-    def test_doji_candle_passes(self):
-        """Doji (zero body) at structural level always passes — indecision at structure is valid."""
+    def test_doji_style_reclaim_candle_is_rejected(self):
+        """Doji-style reclaim candles are too ambiguous and must be rejected."""
         m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
         # Doji: open == close
         m5["close"][-1] = 100.1
@@ -1353,7 +1367,7 @@ class TestSrFlipRetestRefinements:
         m5["low"][-1]   = 99.9
         candles = {"5m": m5}
         sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
-        assert sig is not None, "Doji at structural level should always pass (indecision = valid)."
+        assert sig is None, "Doji-style reclaim must be rejected."
 
     def test_short_no_upper_wick_hard_rejected(self):
         """Upper wick < 20% of body (no rejection at resistance) must be hard-rejected (SHORT)."""
