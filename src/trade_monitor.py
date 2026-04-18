@@ -272,9 +272,8 @@ class TradeMonitor:
             else None
         )
         terminal_ts_epoch = terminal_ts.timestamp()
-        first_breach_ts_epoch = min(
-            ts for ts in (first_sl_ts_epoch, first_tp_ts_epoch) if ts is not None
-        ) if (first_sl_ts_epoch is not None or first_tp_ts_epoch is not None) else None
+        breach_candidates = [ts for ts in (first_sl_ts_epoch, first_tp_ts_epoch) if ts is not None]
+        first_breach_ts_epoch = min(breach_candidates) if breach_candidates else None
 
         def _duration(start_ts: Optional[float], end_ts: Optional[float]) -> Optional[float]:
             if start_ts is None or end_ts is None:

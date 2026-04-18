@@ -68,7 +68,7 @@ class TestPerformanceTrackerRecording:
         assert data[0]["terminal_outcome_timestamp"] == 1300.0
         assert data[0]["create_to_first_breach_sec"] == 200.0
 
-    def test_load_old_records_defaults_new_lifecycle_truth_fields(self, tmp_path):
+    def test_load_old_records_defaults_new_lifecycle_fields(self, tmp_path):
         path = tmp_path / "perf.json"
         path.write_text(
             json.dumps(

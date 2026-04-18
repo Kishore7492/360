@@ -223,7 +223,9 @@ class TestOutcomeRecording:
         assert call_kwargs["terminal_outcome_timestamp"] is not None
         assert call_kwargs["create_to_terminal_sec"] is not None
         assert call_kwargs["create_to_first_breach_sec"] is not None
-        assert call_kwargs["create_to_terminal_sec"] >= call_kwargs["create_to_first_breach_sec"]
+        create_to_terminal_sec = call_kwargs["create_to_terminal_sec"]
+        create_to_first_breach_sec = call_kwargs["create_to_first_breach_sec"]
+        assert create_to_terminal_sec >= create_to_first_breach_sec
 
     @pytest.mark.asyncio
     async def test_lifecycle_outcome_callback_receives_signal_and_outcome(self):
@@ -518,7 +520,9 @@ class TestOutcomeRecording:
         assert call_kwargs["first_breach_to_terminal_sec"] > 0.0
         assert call_kwargs["create_to_first_breach_sec"] is not None
         assert call_kwargs["create_to_terminal_sec"] is not None
-        assert call_kwargs["create_to_first_breach_sec"] < call_kwargs["create_to_terminal_sec"]
+        create_to_first_breach_sec = call_kwargs["create_to_first_breach_sec"]
+        create_to_terminal_sec = call_kwargs["create_to_terminal_sec"]
+        assert create_to_first_breach_sec < create_to_terminal_sec
 
 
 class TestTrailingStopAfterTP2:
