@@ -1121,6 +1121,9 @@ def _make_srflip_candles_long(n=60, flip_offset=3, level=100.0):
     flip_idx = n - flip_offset
     highs[flip_idx] = level + 1.0  # breaks prior_swing_high
 
+    # Hold confirmation for tightened path: prior close already reclaimed above level.
+    closes[-2] = level * 1.001
+
     # Current candle: premium retest with clear rejection wick
     closes[-1] = level * 1.001    # 0.1% above level
     opens[-1]  = level * 1.0015  # slightly above close (bearish body, which is fine)
@@ -1167,6 +1170,9 @@ def _make_srflip_candles_short(n=60, flip_offset=3, level=100.0):
     # Flip candle
     flip_idx = n - flip_offset
     lows[flip_idx] = level - 1.0  # breaks prior_swing_low
+
+    # Hold confirmation for tightened path: prior close already reclaimed below level.
+    closes[-2] = level * 0.999
 
     # Current candle: premium retest with clear upper rejection wick
     closes[-1] = level * 0.999    # 0.1% below level
@@ -1512,10 +1518,10 @@ class TestSrFlipRetestRefinements:
         m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
         # Extended zone: 0.45% from level
         m5["close"][-1] = 100.45
-        # Borderline wick: body=0.4, lower_wick=0.1 (25% of body → penalty)
-        m5["open"][-1]  = 100.85
-        m5["low"][-1]   = 100.75   # lower_wick = 100.85 - 100.75 = 0.10 (25% of 0.4)
-        m5["high"][-1]  = 101.0
+        # Borderline wick: body=0.10, lower_wick=0.025 (25% of body → penalty)
+        m5["open"][-1]  = 100.35
+        m5["low"][-1]   = 100.325
+        m5["high"][-1]  = 100.55
         candles = {"5m": m5}
         # Borderline RSI for LONG: 72 → +5.0 penalty
         ind = _srflip_indicators_long(rsi_val=72.0)
@@ -1525,6 +1531,79 @@ class TestSrFlipRetestRefinements:
         assert sig.soft_penalty_total >= 12.0, (
             f"Expected ≥12.0 accumulated penalty, got {sig.soft_penalty_total}"
         )
+
+    def test_long_immediate_touch_without_prior_hold_rejected(self):
+        """Current retest alone is insufficient; prior candle must already hold above level."""
+        m5 = _make_srflip_candles_long(n=60, flip_offset=3, level=100.0)
+        m5["close"][-2] = 99.95  # no prior hold above flipped level
+        candles = {"5m": m5}
+        sig = self._call_long(candles, _srflip_indicators_long(), _srflip_smc(direction="LONG"))
+        assert sig is None
+
+
+def _make_trend_pullback_candles_long(n=60, level=100.0):
+    closes = np.ones(n) * (level - 0.2)
+    highs = closes + 0.25
+    lows = closes - 0.25
+    opens = closes - 0.05
+
+    # Pullback then turn: down candle then bounce candle.
+    closes[-3] = level + 0.12
+    closes[-2] = level - 0.02
+    closes[-1] = level + 0.10
+    opens[-1] = level + 0.03
+    highs[-1] = level + 0.20
+    lows[-1] = level - 0.12
+
+    return {
+        "open": opens,
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": np.ones(n) * 1000.0,
+    }
+
+
+def _trend_pullback_indicators_long():
+    return {
+        "5m": {
+            **_make_indicators(ema9=100.02, ema21=99.90, ema200=99.30, rsi_val=52.0, mom=0.08),
+            "rsi_prev": 47.0,
+            "momentum_array": [-0.06, 0.08],
+        }
+    }
+
+
+class TestTrendPullbackEntryQuality:
+    def _call_long(self, candles, indicators, smc_data):
+        ch = ScalpChannel()
+        return ch._evaluate_trend_pullback(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="TRENDING_UP",
+        )
+
+    def test_trend_pullback_long_accepts_turn_confirmation(self):
+        candles = {"5m": _make_trend_pullback_candles_long()}
+        sig = self._call_long(candles, _trend_pullback_indicators_long(), {"fvg": [{"level": 100.0}]})
+        assert sig is not None
+        assert sig.setup_class == "TREND_PULLBACK_EMA"
+        assert sig.direction == Direction.LONG
+
+    def test_trend_pullback_long_rejects_active_pullback_without_turn(self):
+        m5 = _make_trend_pullback_candles_long()
+        # Keep EMA proximity but remove turn/continuation confirmation.
+        m5["close"][-2] = 100.04
+        m5["close"][-1] = 100.01  # still slipping lower into EMA
+        m5["open"][-1] = 100.03
+        m5["high"][-1] = 100.08
+        m5["low"][-1] = 99.96
+        candles = {"5m": m5}
+        ind = _trend_pullback_indicators_long()
+        ind["5m"]["momentum_array"] = [0.02, -0.01]
+        ind["5m"]["momentum_last"] = -0.01
+        ind["5m"]["rsi_prev"] = 53.0
+        ind["5m"]["rsi_last"] = 51.0
+        sig = self._call_long(candles, ind, {"fvg": [{"level": 100.0}]})
+        assert sig is None
 
 
 # ---------------------------------------------------------------------------

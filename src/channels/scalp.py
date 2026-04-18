@@ -643,10 +643,17 @@ class ScalpChannel(BaseChannel):
             return None
 
         close = float(m5["close"][-1])
+        closes = m5.get("close", [])
+        highs = m5.get("high", [])
+        lows = m5.get("low", [])
         opens = m5.get("open", [])
-        if len(opens) < 1:
+        if len(opens) < 1 or len(closes) < 3 or len(highs) < 1 or len(lows) < 1:
             return None
         last_open = float(opens[-1])
+        prev_close = float(closes[-2])
+        prev2_close = float(closes[-3])
+        last_low = float(lows[-1])
+        last_high = float(highs[-1])
 
         # EMA alignment check
         if direction == Direction.LONG:
@@ -669,12 +676,56 @@ class ScalpChannel(BaseChannel):
         # RSI pullback zone: 40–60
         if rsi_val is not None and not (40 <= rsi_val <= 60):
             return None
+        rsi_prev = ind.get("rsi_prev")
+        if rsi_val is not None and rsi_prev is not None:
+            if direction == Direction.LONG and float(rsi_val) <= float(rsi_prev):
+                return None
+            if direction == Direction.SHORT and float(rsi_val) >= float(rsi_prev):
+                return None
 
         # Last candle rejection: close > open for LONG, close < open for SHORT
         if direction == Direction.LONG and close <= last_open:
             return None
         if direction == Direction.SHORT and close >= last_open:
             return None
+
+        # Entry-quality tightening: require a genuine turn/continuation confirmation,
+        # not just EMA proximity while pullback is still moving against direction.
+        momentum_last = ind.get("momentum_last")
+        momentum_prev = ind.get("momentum_prev")
+        momentum_array = ind.get("momentum_array")
+        if momentum_array is not None and len(momentum_array) >= 2:
+            momentum_prev = float(momentum_array[-2])
+        if momentum_last is None:
+            return None
+        momentum_last = float(momentum_last)
+        momentum_prev_val = float(momentum_prev) if momentum_prev is not None else None
+        if direction == Direction.LONG:
+            if close <= ema9 or close <= ema21:
+                return None
+            if close <= prev_close:
+                return None
+            if prev_close >= prev2_close:
+                return None
+            if last_low > ema21 * 1.001:
+                return None
+            if momentum_last <= 0:
+                return None
+            if momentum_prev_val is not None and momentum_last <= momentum_prev_val:
+                return None
+        else:
+            if close >= ema9 or close >= ema21:
+                return None
+            if close >= prev_close:
+                return None
+            if prev_close <= prev2_close:
+                return None
+            if last_high < ema21 * 0.999:
+                return None
+            if momentum_last >= 0:
+                return None
+            if momentum_prev_val is not None and momentum_last >= momentum_prev_val:
+                return None
 
         # SMC: require at least one FVG or orderblock in the pullback zone
         fvgs = smc_data.get("fvg", [])
@@ -1794,6 +1845,7 @@ class ScalpChannel(BaseChannel):
         close = float(closes[-1])
         if close <= 0:
             return None
+        prev_close = float(closes[-2])
 
         # Structural level identification.
         # Prior window ([-50:-9]) provides 41 candles of genuine prior structure.
@@ -1845,6 +1897,24 @@ class ScalpChannel(BaseChannel):
         last_open = float(opens[-1])
         last_high = float(highs[-1])
         last_low = float(lows[-1])
+
+        # Entry-quality tightening: require reclaim/hold evidence across candles so
+        # weak immediate-touch entries do not pass on a single tap.
+        if direction == Direction.LONG:
+            if prev_close <= level:
+                return None
+            if close <= level * 1.0005:
+                return None
+            if last_low > level * 1.0045:
+                return None
+        else:
+            if prev_close >= level:
+                return None
+            if close >= level * 0.9995:
+                return None
+            if last_high < level * 0.9955:
+                return None
+
         candle_body = abs(close - last_open)
         wick_penalty = 0.0
         if candle_body > 0:
