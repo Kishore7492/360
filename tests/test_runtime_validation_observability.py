@@ -116,3 +116,58 @@ def test_target_path_funnel_summary_links_stage_and_outcome_counts():
     assert funnel[token]["filtered"] == 1
     assert outcomes[token]["TP1_HIT"] == 3
     assert all("BREAKOUT_RETEST" not in key for key in funnel)
+
+
+def test_pr13_specialist_summary_insufficient_evidence_retention():
+    scanner = _make_scanner()
+    scanner._path_funnel_counters[
+        "evaluator_attempted:360_SCALP:other:EVAL::WHALE_MOMENTUM"
+    ] += 7
+    scanner._path_funnel_counters[
+        "evaluator_attempted:360_SCALP:breakout_momentum:EVAL::VOLUME_SURGE_BREAKOUT"
+    ] += 5
+
+    summary = scanner._build_pr13_specialist_reactivation_summary()
+
+    whale = summary["WHALE_MOMENTUM"]
+    assert whale["attempted"] == 7
+    assert whale["generated"] == 0
+    assert whale["scanner_preparation"] == 0
+    assert whale["emitted"] == 0
+    assert whale["evidence_ready_for_reactivation"] is False
+    assert whale["decision"] == "retained_conservative_insufficient_post_pr_evidence"
+    assert "VOLUME_SURGE_BREAKOUT" not in summary
+
+
+def test_pr13_specialist_summary_conservative_with_evidence():
+    scanner = _make_scanner()
+    scanner._path_funnel_counters[
+        "evaluator_attempted:360_SCALP:other:EVAL::FUNDING_EXTREME_SIGNAL"
+    ] += 3
+    scanner._path_funnel_counters[
+        "evaluator_generated:360_SCALP:other:EVAL::FUNDING_EXTREME_SIGNAL"
+    ] += 2
+    scanner._path_funnel_counters[
+        "scanner_preparation:360_SCALP:reversal:FUNDING_EXTREME_SIGNAL"
+    ] += 2
+    scanner._path_funnel_counters[
+        "emitted:360_SCALP:reversal:FUNDING_EXTREME_SIGNAL"
+    ] += 1
+    scanner._path_funnel_counters[
+        "evaluator_attempted:360_SCALP:other:EVAL::OPENING_RANGE_BREAKOUT"
+    ] += 4
+
+    summary = scanner._build_pr13_specialist_reactivation_summary()
+
+    funding = summary["FUNDING_EXTREME_SIGNAL"]
+    assert funding["attempted"] == 3
+    assert funding["generated"] == 2
+    assert funding["scanner_preparation"] == 2
+    assert funding["emitted"] == 1
+    assert funding["evidence_ready_for_reactivation"] is True
+    assert funding["decision"] == "retain_current_activation_no_auto_promotion"
+
+    orb = summary["OPENING_RANGE_BREAKOUT"]
+    assert orb["attempted"] == 4
+    assert orb["generated"] == 0
+    assert orb["decision"] == "retained_inactive_governance_disabled"

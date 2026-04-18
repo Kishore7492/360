@@ -448,6 +448,17 @@ _PR7C_TARGET_SETUPS: frozenset[str] = frozenset({
     "POST_DISPLACEMENT_CONTINUATION",
     "CONTINUATION_LIQUIDITY_SWEEP",
 })
+# PR-13: Evidence-gated specialist/internal reactivation review scope.
+# These paths are reviewed explicitly from runtime funnel truth only; no
+# automatic promotion is allowed from this summary.
+_PR13_SPECIALIST_REVIEW_SETUPS: frozenset[str] = frozenset({
+    "WHALE_MOMENTUM",
+    "FUNDING_EXTREME_SIGNAL",
+    "QUIET_COMPRESSION_BREAK",
+})
+_PR13_GOVERNANCE_DISABLED_REVIEW_SETUPS: frozenset[str] = frozenset({
+    "OPENING_RANGE_BREAKOUT",
+})
 _EVAL_PATH_PREFIX = "EVAL::"
 
 
@@ -1417,6 +1428,7 @@ class Scanner:
                 _target_tier_summary = self._build_target_path_tier_migration_summary()
                 _target_penalty_summary = self._build_target_path_penalty_summary()
                 _target_funnel_summary, _target_outcome_summary = self._build_target_path_funnel_summary()
+                _pr13_specialist_summary = self._build_pr13_specialist_reactivation_summary()
                 if (
                     _target_tier_summary
                     or _target_penalty_summary
@@ -1429,6 +1441,11 @@ class Scanner:
                         _target_penalty_summary,
                         _target_funnel_summary,
                         _target_outcome_summary,
+                    )
+                if _pr13_specialist_summary:
+                    log.info(
+                        "PR-13 specialist evidence-gate summary (last 100 cycles): {}",
+                        _pr13_specialist_summary,
                     )
                 self._target_path_tier_migration_counters.clear()
                 self._target_path_penalty_gate_counters.clear()
@@ -2380,6 +2397,65 @@ class Scanner:
             _bucket = _funnel_summary.setdefault(_token, {})
             _bucket[_stage] = _bucket.get(_stage, 0) + _count
         return _funnel_summary, _outcome_summary
+
+    def _build_pr13_specialist_reactivation_summary(self) -> Dict[str, Dict[str, Any]]:
+        """Build evidence-gated specialist/internal path retention summary for PR-13."""
+        _tracked_setups = _PR13_SPECIALIST_REVIEW_SETUPS | _PR13_GOVERNANCE_DISABLED_REVIEW_SETUPS
+        _counts: Dict[str, Dict[str, int]] = {
+            _setup: {"attempted": 0, "generated": 0, "scanner_preparation": 0, "emitted": 0}
+            for _setup in _tracked_setups
+        }
+
+        for _key, _count in self._path_funnel_counters.items():
+            _parts = _key.split(":", 3)
+            if len(_parts) != 4:
+                continue
+            _stage, _chan_name, _, _setup_raw = _parts
+            if _chan_name != "360_SCALP":
+                continue
+
+            _setup_name = self._normalize_setup_class(_setup_raw)
+            if _stage in {"evaluator_attempted", "evaluator_generated"}:
+                if not _setup_name.startswith(_EVAL_PATH_PREFIX):
+                    continue
+                _setup_name = self._normalize_setup_class(_setup_name[len(_EVAL_PATH_PREFIX):])
+            if _setup_name not in _tracked_setups:
+                continue
+
+            if _stage == "evaluator_attempted":
+                _counts[_setup_name]["attempted"] += _count
+            elif _stage == "evaluator_generated":
+                _counts[_setup_name]["generated"] += _count
+            elif _stage == "scanner_preparation":
+                _counts[_setup_name]["scanner_preparation"] += _count
+            elif _stage == "emitted":
+                _counts[_setup_name]["emitted"] += _count
+
+        _summary: Dict[str, Dict[str, Any]] = {}
+        for _setup_name in sorted(_tracked_setups):
+            _bucket = _counts[_setup_name]
+            if not any(_bucket.values()):
+                continue
+            _evidence_ready = (
+                _bucket["generated"] > 0
+                and _bucket["scanner_preparation"] > 0
+                and _bucket["emitted"] > 0
+            )
+            if _setup_name in _PR13_GOVERNANCE_DISABLED_REVIEW_SETUPS:
+                _decision = "retained_inactive_governance_disabled"
+            elif _evidence_ready:
+                _decision = "retain_current_activation_no_auto_promotion"
+            else:
+                _decision = "retained_conservative_insufficient_post_pr_evidence"
+            _summary[_setup_name] = {
+                "attempted": _bucket["attempted"],
+                "generated": _bucket["generated"],
+                "scanner_preparation": _bucket["scanner_preparation"],
+                "emitted": _bucket["emitted"],
+                "evidence_ready_for_reactivation": _evidence_ready,
+                "decision": _decision,
+            }
+        return _summary
 
     def _resolve_penalty_modulation_scale(
         self,
