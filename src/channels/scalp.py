@@ -1835,12 +1835,13 @@ class ScalpChannel(BaseChannel):
           Extended zone (0.3%–0.6%) accumulates a +3.0 soft penalty, reflecting a
           messier but still-valid structural retest where price hasn't cleanly returned
           to the exact level.  Hard block beyond 0.6%.
-        - Rejection candle strictness reduced from a hard-50% wick rule to a layered
-          soft/hard gate: wick < 20% of body is a hard reject (no rejection evidence
-          at the structural level).  Wick 20%–50% of body accumulates a +4.0 soft
-          penalty (borderline rejection — valid but weaker structural push-back).
-          Wick ≥ 50% of body passes with no penalty (clear hammer / shooting star).
-          Doji (zero body) always passes — indecision at structure is inherently valid.
+        - Flip confirmation requires breakout-close acceptance, not wick-only breach:
+          LONG needs a recent closed candle that breaks and closes above prior swing
+          high; SHORT needs a recent closed candle that breaks and closes below prior
+          swing low.
+        - Rejection candle strictness remains layered soft/hard, but doji-style
+          indecision candles are rejected.  The reclaim candle must show a minimum
+          body-vs-range footprint before wick-quality is evaluated.
         - RSI hard gate relaxed from 70/30 to 80/20.  Borderline 70–79 (LONG) or
           21–30 (SHORT) attracts a +5.0 soft penalty instead of a hard block, because
           the initial flip move routinely pushes RSI to these levels without invalidating
@@ -1885,18 +1886,47 @@ class ScalpChannel(BaseChannel):
         # arrive 6–7 bars after the structural break.
         prior_highs = [float(h) for h in highs[-50:-9]]
         prior_lows = [float(l) for l in lows[-50:-9]]
-        recent_highs = [float(h) for h in highs[-9:-1]]
-        recent_lows = [float(l) for l in lows[-9:-1]]
+        # Breakout confirmation is evaluated on the closed-candle window before the
+        # immediate prior candle. The immediate prior candle is reserved for hold/reclaim
+        # evidence in the retest sequence.
+        recent_highs = [float(h) for h in highs[-9:-2]]
+        recent_lows = [float(l) for l in lows[-9:-2]]
+        recent_closes = [float(c) for c in closes[-9:-2]]
+        recent_opens = [float(o) for o in opens[-9:-2]]
+        recent_prev_closes = [float(c) for c in closes[-10:-3]]
 
         prior_swing_high = max(prior_highs)
         prior_swing_low = min(prior_lows)
 
-        # Bullish flip: any candle in the 8-candle window broke prior swing high → LONG
-        if max(recent_highs) > prior_swing_high:
+        # Bullish flip: require breakout-close acceptance above prior swing high.
+        long_breakout_close_confirmed = any(
+            h > prior_swing_high
+            and c > prior_swing_high
+            and (o <= prior_swing_high or prev_c <= prior_swing_high)
+            for h, c, o, prev_c in zip(
+                recent_highs,
+                recent_closes,
+                recent_opens,
+                recent_prev_closes,
+            )
+        )
+        # Bearish flip: require breakout-close acceptance below prior swing low.
+        short_breakout_close_confirmed = any(
+            l < prior_swing_low
+            and c < prior_swing_low
+            and (o >= prior_swing_low or prev_c >= prior_swing_low)
+            for l, c, o, prev_c in zip(
+                recent_lows,
+                recent_closes,
+                recent_opens,
+                recent_prev_closes,
+            )
+        )
+
+        if long_breakout_close_confirmed:
             direction = Direction.LONG
             level = prior_swing_high
-        # Bearish flip: any candle in the 8-candle window broke prior swing low → SHORT
-        elif min(recent_lows) < prior_swing_low:
+        elif short_breakout_close_confirmed:
             direction = Direction.SHORT
             level = prior_swing_low
         else:
@@ -1942,20 +1972,24 @@ class ScalpChannel(BaseChannel):
                 return None
 
         candle_body = abs(close - last_open)
+        candle_range = max(last_high - last_low, 0.0)
+        if candle_range <= 0:
+            return None
+        if candle_body / candle_range < 0.12:
+            return None
         wick_penalty = 0.0
-        if candle_body > 0:
-            if direction == Direction.LONG:
-                lower_wick = last_open - last_low if last_open > last_low else close - last_low
-                if lower_wick < 0.2 * candle_body:
-                    return None  # No meaningful rejection at support
-                if lower_wick < 0.5 * candle_body:
-                    wick_penalty = 4.0  # Borderline rejection — apply soft penalty
-            else:
-                upper_wick = last_high - last_open if last_high > last_open else last_high - close
-                if upper_wick < 0.2 * candle_body:
-                    return None  # No meaningful rejection at resistance
-                if upper_wick < 0.5 * candle_body:
-                    wick_penalty = 4.0  # Borderline rejection — apply soft penalty
+        if direction == Direction.LONG:
+            lower_wick = last_open - last_low if last_open > last_low else close - last_low
+            if lower_wick < 0.2 * candle_body:
+                return None  # No meaningful rejection at support
+            if lower_wick < 0.5 * candle_body:
+                wick_penalty = 4.0  # Borderline rejection — apply soft penalty
+        else:
+            upper_wick = last_high - last_open if last_high > last_open else last_high - close
+            if upper_wick < 0.2 * candle_body:
+                return None  # No meaningful rejection at resistance
+            if upper_wick < 0.5 * candle_body:
+                wick_penalty = 4.0  # Borderline rejection — apply soft penalty
 
         ind = indicators.get("5m", {})
         ema9 = ind.get("ema9_last")
@@ -2073,6 +2107,7 @@ class ScalpChannel(BaseChannel):
         sig.tp1 = round(tp1, 8)
         sig.tp2 = round(tp2, 8)
         sig.tp3 = round(tp3, 8)
+        sig.sr_flip_level = round(level, 8)
         sig.original_tp1 = sig.tp1
         sig.original_tp2 = sig.tp2
         sig.original_tp3 = sig.tp3

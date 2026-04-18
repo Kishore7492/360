@@ -257,6 +257,39 @@ class TestExecutionAndRiskChecks:
         assert result.passed is False
         assert "trigger" in result.reason
 
+    def test_sr_flip_retest_uses_structural_flip_anchor(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.2
+        signal.sr_flip_level = 100.0
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.SR_FLIP_RETEST, MarketState.STRONG_TREND
+        )
+        assert result.trigger_confirmed is True
+        assert result.passed is True
+        assert result.anchor_price == pytest.approx(100.0)
+        assert "breakout close acceptance" in result.execution_note
+
+    def test_sr_flip_retest_rejects_entry_without_clearance_beyond_flip_level(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.0
+        signal.sr_flip_level = 100.0
+        result = execution_quality_check(
+            signal, _indicators(), _smc(), SetupClass.SR_FLIP_RETEST, MarketState.STRONG_TREND
+        )
+        assert result.trigger_confirmed is False
+        assert result.passed is False
+        assert "trigger" in result.reason
+
+    def test_trend_pullback_execution_branch_unchanged(self):
+        signal = _signal(channel="360_SCALP", direction=Direction.LONG)
+        signal.entry = 100.6
+        indicators = _indicators()
+        result = execution_quality_check(
+            signal, indicators, _smc(), SetupClass.TREND_PULLBACK_CONTINUATION, MarketState.STRONG_TREND
+        )
+        assert result.anchor_price == pytest.approx(indicators["5m"]["ema21_last"])
+        assert "pullback confirmation" in result.execution_note
+
     def test_range_fade_no_key_error(self):
         """RANGE_FADE must not raise KeyError — this was the P0 production bug."""
         signal = _signal(channel="360_SCALP", direction=Direction.LONG)
