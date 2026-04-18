@@ -2153,6 +2153,29 @@ class Scanner:
     def _increment_path_funnel(self, stage: str, chan_name: str, setup_class_name: Any) -> None:
         self._path_funnel_counters[self._path_funnel_key(stage, chan_name, setup_class_name)] += 1
 
+    def _record_scalp_generation_telemetry(self, chan: Any, chan_name: str) -> None:
+        if chan_name != "360_SCALP":
+            return
+        _consume = getattr(chan, "consume_generation_telemetry", None)
+        if not callable(_consume):
+            return
+        _snapshot = _consume() or {}
+        _stage_map = {
+            "attempts": "evaluator_attempted",
+            "no_signal": "evaluator_no_signal",
+            "generated": "evaluator_generated",
+        }
+        for _source_stage, _funnel_stage in _stage_map.items():
+            _counts = _snapshot.get(_source_stage, {})
+            if not isinstance(_counts, dict):
+                continue
+            for _path_name, _count in _counts.items():
+                _n = int(_count or 0)
+                if _n <= 0:
+                    continue
+                _setup = f"EVAL::{self._normalize_setup_class(_path_name)}"
+                self._path_funnel_counters[self._path_funnel_key(_funnel_stage, chan_name, _setup)] += _n
+
     @staticmethod
     def _evaluate_family_semantic_mtf(
         *,
@@ -3866,6 +3889,7 @@ class Scanner:
                     ctx_for_chan=ctx_for_chan,
                     volume_24h=volume_24h,
                 )
+                self._record_scalp_generation_telemetry(chan, chan_name)
                 # Normalise: real ScalpChannel returns list; legacy mocks return Signal|None
                 if isinstance(_raw_result, list):
                     _raw_sigs = _raw_result
@@ -3885,6 +3909,7 @@ class Scanner:
                 for _raw_sig in _raw_sigs:
                     _raw_setup = self._normalize_setup_class(getattr(_raw_sig, "setup_class", None))
                     self._increment_path_funnel("generated", chan_name, _raw_setup)
+                    self._increment_path_funnel("scanner_preparation", chan_name, _raw_setup)
                     _funnel_meta: Dict[str, Any] = {}
                     # cross_verified is None for all scalp channels (cross-exchange
                     # verification is skipped for 360_SCALP — see _prepare_signal).
