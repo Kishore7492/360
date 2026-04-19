@@ -1519,7 +1519,8 @@ class TestSrFlipRetestRefinements:
         indicators["5m"]["atr_last"] = 1.0
         sig = self._call_long(candles, indicators, _srflip_smc(direction="LONG"))
         assert sig is not None
-        # anchor=min(level,last_low)=99.6 ; buffer=max(0.15, 0.35, 0.4+0.15)=0.55
+        # anchor=min(level,last_low)=99.6 ; buffer=max(level_buffer=level*0.0015=0.15,
+        # atr_buffer=0.35, failure_buffer=(wick_overshoot=0.4)+(atr*0.15=0.15))=0.55
         assert sig.stop_loss == pytest.approx(99.05, rel=1e-6)
         assert sig.stop_loss < m5["low"][-1]
 
@@ -1535,7 +1536,8 @@ class TestSrFlipRetestRefinements:
         indicators["5m"]["atr_last"] = 1.0
         sig = self._call_short(candles, indicators, _srflip_smc(direction="SHORT"))
         assert sig is not None
-        # anchor=max(level,last_high)=100.4 ; buffer=max(0.15, 0.35, 0.4+0.15)=0.55
+        # anchor=max(level,last_high)=100.4 ; buffer=max(level_buffer=level*0.0015=0.15,
+        # atr_buffer=0.35, failure_buffer=(wick_overshoot=0.4)+(atr*0.15=0.15))=0.55
         assert sig.stop_loss == pytest.approx(100.95, rel=1e-6)
         assert sig.stop_loss > m5["high"][-1]
 

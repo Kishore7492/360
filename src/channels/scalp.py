@@ -2039,7 +2039,11 @@ class ScalpChannel(BaseChannel):
         atr_val = float(ind.get("atr_last", close * 0.002))
         atr_buffer = atr_val * 0.35
         level_buffer = level * 0.0015
-        wick_overshoot = max(level - last_low, 0.0) if direction == Direction.LONG else max(last_high - level, 0.0)
+        wick_overshoot = 0.0
+        if direction == Direction.LONG:
+            wick_overshoot = max(level - last_low, 0.0)
+        else:
+            wick_overshoot = max(last_high - level, 0.0)
         failure_buffer = wick_overshoot + atr_val * 0.15
         invalidation_buffer = max(level_buffer, atr_buffer, failure_buffer)
         if direction == Direction.LONG:
