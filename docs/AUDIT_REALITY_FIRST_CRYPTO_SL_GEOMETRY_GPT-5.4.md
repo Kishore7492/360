@@ -34,7 +34,7 @@
 - `origin/monitor-logs:monitor/report/truth_snapshot.json` and `truth_report.md` show:
   - Active low-quality concentration in `SR_FLIP_RETEST` and `TREND_PULLBACK_EMA`.
   - Current sampled quality for both: `win_rate=0`, `sl_rate=100`.
-  - Median create→first breach ~`183.88s`, create→terminal ~`186.07s`, and terminal-close-around-3m at `92.9%`.
+  - Median create->first breach ~`183.88s`, create->terminal ~`186.07s`, and terminal-close-around-3m at `92.9%`.
 
 ## 5. Path-by-path analysis
 ### 5.1 SR_FLIP_RETEST
@@ -79,7 +79,7 @@
 
 ## 9. Alternative explanations and how much they matter
 - **Setup logic / entry timing quality:** high impact (explains persistent SL-first outcomes on expressive paths).
-- **Downstream governance (MTF/trend-centric gating for structural families):** high impact (large generated→gated losses in monitor truth).
+- **Downstream governance (MTF/trend-centric gating for structural families):** high impact (large generated->gated losses in monitor truth).
 - **Stop geometry compression/tightness:** high impact for SR/reclaim/reversal subset, medium system-wide.
 - **Lifecycle handling (~3 minute behavior):** medium impact for observability interpretation; not primary causal driver of losses itself.
 
@@ -93,7 +93,7 @@
 1. Make SL cap policy family-aware (not blanket `360_SCALP=1.5%`), with explicit reject-not-compress option for structural families.
 2. Add `LIQUIDITY_SWEEP_REVERSAL` to structural SL protection if its evaluator anchor is the intended thesis owner.
 3. Introduce family-aware RR feasibility checks in router/risk layer (avoid universal `1.3` for all families).
-4. Emit explicit geometry-lineage telemetry: evaluator SL/TP → risk-plan SL/TP → post-predictive final live.
+4. Emit explicit geometry-lineage telemetry: evaluator SL/TP -> risk-plan SL/TP -> post-predictive final live.
 5. Add explicit runtime counters for “truthful wide rejected” vs “compressed geometry accepted/rejected.”
 
 ## 12. Confidence / uncertainty
