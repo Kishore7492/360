@@ -34,8 +34,12 @@ def _outcome_label(record: Dict[str, Any]) -> str:
 
 
 def _parse_funnel_key_for_channel(key: str, channel: str) -> Optional[Tuple[str, str, str]]:
-    # Funnel telemetry key contract from scanner:
-    # stage:channel:family:setup (stage/setup may contain ':').
+    """Parse a funnel key and return (stage, family, setup) for one channel.
+
+    Key contract: stage:channel:family:setup.
+    Stage can include nested tokens (for example ``geometry:final_live:changed``),
+    and setup can include ``:``, so parsing is anchored around ``:<channel>:``.
+    """
     key_text = str(key)
     channel_token = f":{channel}:"
     if channel_token not in key_text:
@@ -584,7 +588,7 @@ def format_truth_report_markdown(snapshot: Dict[str, Any], comparison: Dict[str,
     lines.extend(
         [
             "",
-            "## Post-correction focus (PR #193 / PR #194)",
+            "## Post-correction focus (target setups)",
             "| Setup | Attempts | Generated | Emitted | Gated | Win rate | SL rate | Median first breach (s) | Median terminal (s) | Geometry preserved | Geometry changed | Geometry rejected |",
             "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ]

@@ -137,21 +137,20 @@ def test_parse_path_funnel_from_logs_extracts_channel_only() -> None:
 
 
 def test_parse_path_funnel_from_logs_handles_stage_tokens_with_colons() -> None:
+    stage_changed = "geometry:final_live:changed:360_SCALP:reclaim_retest:SR_FLIP_RETEST"
+    stage_rejected = (
+        "geometry:final_live:rejected_reason:risk_plan:360_SCALP:trend_following:TREND_PULLBACK_EMA"
+    )
     logs = "\n".join(
         [
-            "Path funnel (last 100 cycles): path={'geometry:final_live:changed:360_SCALP:reclaim_retest:SR_FLIP_RETEST': 2, 'geometry:final_live:rejected_reason:risk_plan:360_SCALP:trend_following:TREND_PULLBACK_EMA': 1} channel={}",
+            f"Path funnel (last 100 cycles): path={{'{stage_changed}': 2, '{stage_rejected}': 1}} channel={{}}",
         ]
     )
 
     parsed = parse_path_funnel_from_logs(logs, "360_SCALP")
 
-    assert parsed["geometry:final_live:changed:360_SCALP:reclaim_retest:SR_FLIP_RETEST"] == 2
-    assert (
-        parsed[
-            "geometry:final_live:rejected_reason:risk_plan:360_SCALP:trend_following:TREND_PULLBACK_EMA"
-        ]
-        == 1
-    )
+    assert parsed[stage_changed] == 2
+    assert parsed[stage_rejected] == 1
 
 
 def test_build_snapshot_includes_post_correction_focus_geometry_and_timing() -> None:
@@ -223,4 +222,5 @@ def test_build_snapshot_includes_post_correction_focus_geometry_and_timing() -> 
     assert sr_focus["geometry_final_rejected"] == 1
     assert sr_focus["geometry_rejected_reasons"]["risk_plan"] == 1
     assert sr_focus["median_first_breach_sec"] == 65.0
+    assert sr_focus["median_terminal_duration_sec"] == 210.0
     assert trend_focus["geometry_final_preserved"] == 2
