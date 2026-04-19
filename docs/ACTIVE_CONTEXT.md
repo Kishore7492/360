@@ -1,16 +1,16 @@
 # ACTIVE CONTEXT
 
 ## Current Phase
-The repository is in a runtime-truth corrective validation phase: PR-7A/PR-7B are merged, PR-7C observability/validation hardening remains active, and `SR_FLIP_RETEST` now has a merged path-specific stop-doctrine correction (adaptive structural invalidation replacing fixed ±0.20%).
+The repository is in a runtime-truth corrective validation phase: PR-7A/PR-7B are merged, PR-7C observability/validation hardening remains active, and `SR_FLIP_RETEST` has a pending path-specific stop-doctrine correction under PR review (adaptive structural invalidation replacing fixed ±0.20% if merged).
 
 ## Current Active Priority
-1) Validate live outcomes for `SR_FLIP_RETEST` after the evaluator-owned adaptive structural stop fix (truthful invalidation first; no cosmetic tightening)  
+1) Keep `SR_FLIP_RETEST` stop-doctrine correction as an active validation target while PR is under review; validate live outcomes only after merge  
 2) Complete PR-7C runtime validation hardening / observability refinement  
 3) Validate targeted-path effects from PR-7A/PR-7B (WATCHLIST→B migration, modulation concentration, downstream outcomes)  
 4) Decide any next corrective PR only from runtime evidence; keep thresholds/router doctrine unchanged unless explicitly re-scoped
 
 ## Current Known Live Issues
-- Runtime validation for PR-7A/PR-7B and the new `SR_FLIP_RETEST` structural-stop correction is not yet complete enough to call convergence.
+- Runtime validation for PR-7A/PR-7B is not yet complete enough to call convergence; SR flip stop-doctrine runtime validation is pending PR merge.
 - Targeted paths still require explicit WATCHLIST→B migration confirmation at runtime.
 - Penalty-modulation concentration must be confirmed to remain narrow/path-targeted in live telemetry.
 - Downstream path outcomes (funnel + lifecycle) still need focused evidence review for targeted paths.
@@ -18,7 +18,7 @@ The repository is in a runtime-truth corrective validation phase: PR-7A/PR-7B ar
 - Broad quality drift must be ruled out before any further scoring/policy move.
 
 ## Next PR Queue
-- Priority 1: Runtime validation window for `SR_FLIP_RETEST` adaptive structural stop correction (post-merge truth check)  
+- Priority 1: Resolve PR review and, if merged, run runtime validation window for `SR_FLIP_RETEST` adaptive structural stop correction  
 - Priority 2: PR-7C runtime validation hardening / observability refinement (current in progress / next merge target)  
 - Priority 3: Structured runtime evidence review for PR-7A/PR-7B effects (tier migration + modulation + outcomes)  
 - Priority 4: Evidence-gated follow-up correction for `TREND_PULLBACK_EMA` if still active-low-quality after SR flip fix  

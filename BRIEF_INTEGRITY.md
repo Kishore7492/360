@@ -7,8 +7,8 @@ Every Copilot session must check this file if OWNER_BRIEF.md appears short or co
 
 | Field | Value |
 |---|---|
-| Canonical baseline date | 2026-04-19 |
-| Line count | 917 |
+| Canonical baseline date | 2026-04-17 |
+| Line count | 916 |
 | Minimum acceptable lines | 480 |
 | Format | Fresh canonical owner-operating manual (8-part structure) |
 | Verified by | Copilot + owner (mkmk749278) |
@@ -33,14 +33,6 @@ current-question and direction rows updated to runtime validation focus, and a n
 sequencing section clarifies what changed in PR-7A vs PR-7B, what PR-7C is for, and what operators
 must validate next (WATCHLIST→B migration, modulation hit frequency, downstream outcomes, broad-drift
 guard). No truncation — canonical length is now 916 lines.
-
-## Important — SR_FLIP_RETEST Stop Doctrine Refresh Note (2026-04-19)
-
-OWNER_BRIEF.md was updated on 2026-04-19 to reflect the merged path-specific `SR_FLIP_RETEST`
-stop-doctrine correction. Key updates: Part VII snapshot date refreshed, a new status row added for
-adaptive structural invalidation replacing the old fixed ±0.20% stop, and current direction updated
-to require runtime validation of this correction alongside PR-7C observability hardening.
-No truncation — canonical length is now 917 lines.
 
 ## Important — Documentation Integrity Refresh Note (2026-04-14)
 
