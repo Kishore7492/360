@@ -85,6 +85,7 @@ def test_compare_windows_quality_and_flow_deltas() -> None:
     assert comparison["no_generation_delta"] == 3
     assert comparison["fast_failures_delta"] == 2
     assert comparison["quality_changes"]["A"]["win_rate_delta"] == 15.0
+    assert "post_correction_window_delta" in comparison
 
 
 def test_build_snapshot_handles_missing_optional_data() -> None:
@@ -133,3 +134,93 @@ def test_parse_path_funnel_from_logs_extracts_channel_only() -> None:
     assert parsed["evaluator_attempted:360_SCALP:scalp:EVAL::A"] == 3
     assert parsed["emitted:360_SCALP:scalp:A"] == 1
     assert "evaluator_attempted:360_SWING:other:B" not in parsed
+
+
+def test_parse_path_funnel_from_logs_handles_stage_tokens_with_colons() -> None:
+    stage_changed = "geometry:final_live:changed:360_SCALP:reclaim_retest:SR_FLIP_RETEST"
+    stage_rejected = (
+        "geometry:final_live:rejected_reason:risk_plan:360_SCALP:trend_following:TREND_PULLBACK_EMA"
+    )
+    logs = "\n".join(
+        [
+            f"Path funnel (last 100 cycles): path={{'{stage_changed}': 2, '{stage_rejected}': 1}} channel={{}}",
+        ]
+    )
+
+    parsed = parse_path_funnel_from_logs(logs, "360_SCALP")
+
+    assert parsed[stage_changed] == 2
+    assert parsed[stage_rejected] == 1
+
+
+def test_build_snapshot_includes_post_correction_focus_geometry_and_timing() -> None:
+    now_ts = 1_000_000.0
+    records = [
+        {
+            "timestamp": now_ts - 80,
+            "channel": "360_SCALP",
+            "symbol": "BTCUSDT",
+            "setup_class": "SR_FLIP_RETEST",
+            "outcome_label": "SL_HIT",
+            "pnl_pct": -0.9,
+            "create_to_first_breach_sec": 55.0,
+            "create_to_terminal_sec": 190.0,
+        },
+        {
+            "timestamp": now_ts - 60,
+            "channel": "360_SCALP",
+            "symbol": "ETHUSDT",
+            "setup_class": "SR_FLIP_RETEST",
+            "outcome_label": "TP1_HIT",
+            "pnl_pct": 0.7,
+            "create_to_first_breach_sec": 75.0,
+            "create_to_terminal_sec": 230.0,
+        },
+        {
+            "timestamp": now_ts - 40,
+            "channel": "360_SCALP",
+            "symbol": "BTCUSDT",
+            "setup_class": "TREND_PULLBACK_EMA",
+            "outcome_label": "SL_HIT",
+            "pnl_pct": -0.4,
+            "create_to_first_breach_sec": 95.0,
+            "create_to_terminal_sec": 260.0,
+        },
+    ]
+
+    current_funnel = {
+        "evaluator_attempted:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 5,
+        "generated:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 3,
+        "emitted:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 2,
+        "geometry:final_live:changed:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 2,
+        "geometry:final_live:rejected:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 1,
+        "geometry:final_live:rejected_reason:risk_plan:360_SCALP:reclaim_retest:SR_FLIP_RETEST": 1,
+        "evaluator_attempted:360_SCALP:trend_following:TREND_PULLBACK_EMA": 4,
+        "generated:360_SCALP:trend_following:TREND_PULLBACK_EMA": 2,
+        "emitted:360_SCALP:trend_following:TREND_PULLBACK_EMA": 1,
+        "geometry:final_live:preserved:360_SCALP:trend_following:TREND_PULLBACK_EMA": 2,
+    }
+
+    snapshot, _comparison = build_snapshot(
+        channel="360_SCALP",
+        lookback_hours=24,
+        compare_previous_window=True,
+        include_raw_json=False,
+        symbol_filter="",
+        setup_filter="",
+        runtime_health={"running": True, "status": "running", "health": "healthy"},
+        heartbeat_text="Heartbeat age: 10s",
+        records=records,
+        current_funnel=current_funnel,
+        previous_funnel={},
+        now_ts=now_ts,
+    )
+
+    sr_focus = snapshot["post_correction_focus"]["SR_FLIP_RETEST"]
+    trend_focus = snapshot["post_correction_focus"]["TREND_PULLBACK_EMA"]
+    assert sr_focus["geometry_final_changed"] == 2
+    assert sr_focus["geometry_final_rejected"] == 1
+    assert sr_focus["geometry_rejected_reasons"]["risk_plan"] == 1
+    assert sr_focus["median_first_breach_sec"] == 65.0
+    assert sr_focus["median_terminal_duration_sec"] == 210.0
+    assert trend_focus["geometry_final_preserved"] == 2
