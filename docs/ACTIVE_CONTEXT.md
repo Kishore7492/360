@@ -1,29 +1,27 @@
 # ACTIVE CONTEXT
 
 ## Current Phase
-The repository is in a runtime-truth corrective validation phase: PR-7A/PR-7B are merged, PR-7C observability/validation hardening remains active, `SR_FLIP_RETEST` stop-doctrine correction is merged (PR #193), and `TREND_PULLBACK_EMA` now has a pending bounded finish-confirmation correction under PR review.
+The repository is in a runtime-truth corrective validation phase: PR-7A/PR-7B are merged, PR-7C observability/validation hardening remains active, and both path-specific corrections are merged (`SR_FLIP_RETEST` stop-doctrine via PR #193 and `TREND_PULLBACK_EMA` finish-confirmation via PR #194).
 
 ## Current Active Priority
-1) Validate merged `SR_FLIP_RETEST` adaptive structural stop-doctrine runtime effects  
-2) Keep `TREND_PULLBACK_EMA` finish-confirmation correction as an active validation target while PR is under review; validate live outcomes only after merge  
-3) Complete PR-7C runtime validation hardening / observability refinement  
-4) Validate targeted-path effects from PR-7A/PR-7B (WATCHLIST→B migration, modulation concentration, downstream outcomes)  
-5) Decide any next corrective PR only from runtime evidence; keep thresholds/router doctrine unchanged unless explicitly re-scoped
+1) Validate merged targeted-path corrections (`SR_FLIP_RETEST` PR #193 + `TREND_PULLBACK_EMA` PR #194) using bounded PR-7C runtime observability  
+2) Complete PR-7C runtime validation hardening / observability refinement  
+3) Validate targeted-path effects from PR-7A/PR-7B (WATCHLIST→B migration, modulation concentration, downstream outcomes)  
+4) Decide any next corrective PR only from runtime evidence; keep thresholds/router doctrine unchanged unless explicitly re-scoped
 
 ## Current Known Live Issues
-- Runtime validation for PR-7A/PR-7B is not yet complete enough to call convergence; SR flip stop-doctrine runtime validation is now required post-merge.
+- Runtime validation for PR-7A/PR-7B is not yet complete enough to call convergence; post-merge validation is required for both PR #193 and PR #194.
 - Targeted paths still require explicit WATCHLIST→B migration confirmation at runtime.
 - Penalty-modulation concentration must be confirmed to remain narrow/path-targeted in live telemetry.
 - Downstream path outcomes (funnel + lifecycle) still need focused evidence review for targeted paths.
-- `TREND_PULLBACK_EMA` remains active-low-quality; bounded finish-confirmation/entry-quality hardening is the current pending corrective PR.
+- `TREND_PULLBACK_EMA` remains active-low-quality until runtime truth confirms post-PR #194 improvement.
 - Broad quality drift must be ruled out before any further scoring/policy move.
 
 ## Next PR Queue
-- Priority 1: Run runtime validation window for merged `SR_FLIP_RETEST` adaptive structural stop correction  
-- Priority 2: Resolve PR review and, if merged, run runtime validation window for `TREND_PULLBACK_EMA` bounded finish-confirmation correction  
-- Priority 3: PR-7C runtime validation hardening / observability refinement (current in progress / next merge target)  
-- Priority 4: Structured runtime evidence review for PR-7A/PR-7B effects (tier migration + modulation + outcomes)  
-- Priority 5: Lifecycle/terminal-event hardening as secondary integrity work
+- Priority 1: Run runtime validation window for merged `SR_FLIP_RETEST` + `TREND_PULLBACK_EMA` corrections  
+- Priority 2: PR-7C runtime validation hardening / observability refinement (current in progress / next merge target)  
+- Priority 3: Structured runtime evidence review for PR-7A/PR-7B effects (tier migration + modulation + outcomes)  
+- Priority 4: Lifecycle/terminal-event hardening as secondary integrity work
 
 ## Roadmap Truth (Current)
 - PR-1: Family-aware 360_SCALP MTF gate refinement with per-family suppression telemetry — merged.

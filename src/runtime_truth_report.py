@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 TP_LABELS = {"TP", "TP1", "TP2", "TP3", "TP_HIT", "TP1_HIT", "TP2_HIT", "TP3_HIT", "TAKE_PROFIT", "WIN"}
 SL_LABELS = {"SL", "SL_HIT", "STOP_LOSS", "LOSS"}
-_FUNNEL_KEY_PARTS = 4
+_POST_CORRECTION_TARGET_SETUPS = ("SR_FLIP_RETEST", "TREND_PULLBACK_EMA")
 
 
 def _median(values: Iterable[Optional[float]]) -> Optional[float]:
@@ -33,14 +33,19 @@ def _outcome_label(record: Dict[str, Any]) -> str:
     ).upper()
 
 
-def _parse_funnel_key(key: str) -> Optional[Tuple[str, str, str, str]]:
+def _parse_funnel_key_for_channel(key: str, channel: str) -> Optional[Tuple[str, str, str]]:
     # Funnel telemetry key contract from scanner:
-    # stage:channel:family:setup (setup can contain ':' so split only 3 times).
-    parts = str(key).split(":", _FUNNEL_KEY_PARTS - 1)
-    if len(parts) != _FUNNEL_KEY_PARTS:
+    # stage:channel:family:setup (stage/setup may contain ':').
+    key_text = str(key)
+    channel_token = f":{channel}:"
+    if channel_token not in key_text:
         return None
-    stage, chan_name, family, setup = parts
-    return stage, chan_name, family, setup
+    stage, rest = key_text.split(channel_token, 1)
+    family_setup = rest.split(":", 1)
+    if len(family_setup) != 2:
+        return None
+    family, setup = family_setup
+    return stage, family, setup
 
 
 def _parse_csv_filter(raw: Optional[str]) -> List[str]:
@@ -73,11 +78,8 @@ def parse_path_funnel_from_logs(log_text: str, channel: str) -> Dict[str, int]:
         if not isinstance(parsed, dict):
             continue
         for key, value in parsed.items():
-            parsed_key = _parse_funnel_key(str(key))
+            parsed_key = _parse_funnel_key_for_channel(str(key), channel)
             if parsed_key is None:
-                continue
-            _, chan_name, _, _ = parsed_key
-            if chan_name != channel:
                 continue
             try:
                 n = int(value or 0)
@@ -91,12 +93,10 @@ def parse_path_funnel_from_logs(log_text: str, channel: str) -> Dict[str, int]:
 def stage_totals_by_setup(funnel_counters: Dict[str, int], channel: str) -> Dict[str, Dict[str, int]]:
     by_setup: Dict[str, Dict[str, int]] = {}
     for key, value in funnel_counters.items():
-        parsed_key = _parse_funnel_key(str(key))
+        parsed_key = _parse_funnel_key_for_channel(str(key), channel)
         if parsed_key is None:
             continue
-        stage, chan_name, family, setup = parsed_key
-        if chan_name != channel:
-            continue
+        stage, family, setup = parsed_key
         bucket = by_setup.setdefault(setup, {"family": family})
         bucket[stage] = bucket.get(stage, 0) + int(value or 0)
     return by_setup
@@ -277,6 +277,45 @@ def compare_windows(
         - stage_total(previous_path_summary, "evaluator_no_signal"),
         "fast_failures_delta": current_fast - previous_fast,
         "quality_changes": quality_changes,
+        "post_correction_window_delta": {
+            setup: {
+                "emitted_delta": int(current_path_summary.get(setup, {}).get("emitted", 0))
+                - int(previous_path_summary.get(setup, {}).get("emitted", 0)),
+                "win_rate_delta": round(
+                    float(current_quality.get(setup, {}).get("win_rate", 0.0))
+                    - float(previous_quality.get(setup, {}).get("win_rate", 0.0)),
+                    2,
+                ),
+                "sl_rate_delta": round(
+                    float(current_quality.get(setup, {}).get("sl_rate", 0.0))
+                    - float(previous_quality.get(setup, {}).get("sl_rate", 0.0)),
+                    2,
+                ),
+                "median_first_breach_delta_sec": round(
+                    float(current_quality.get(setup, {}).get("median_first_breach_sec") or 0.0)
+                    - float(previous_quality.get(setup, {}).get("median_first_breach_sec") or 0.0),
+                    2,
+                ),
+                "median_terminal_delta_sec": round(
+                    float(current_quality.get(setup, {}).get("median_terminal_duration_sec") or 0.0)
+                    - float(previous_quality.get(setup, {}).get("median_terminal_duration_sec") or 0.0),
+                    2,
+                ),
+                "geometry_preserved_delta": int(
+                    current_path_summary.get(setup, {}).get("geometry:final_live:preserved", 0)
+                )
+                - int(previous_path_summary.get(setup, {}).get("geometry:final_live:preserved", 0)),
+                "geometry_changed_delta": int(
+                    current_path_summary.get(setup, {}).get("geometry:final_live:changed", 0)
+                )
+                - int(previous_path_summary.get(setup, {}).get("geometry:final_live:changed", 0)),
+                "geometry_rejected_delta": int(
+                    current_path_summary.get(setup, {}).get("geometry:final_live:rejected", 0)
+                )
+                - int(previous_path_summary.get(setup, {}).get("geometry:final_live:rejected", 0)),
+            }
+            for setup in _POST_CORRECTION_TARGET_SETUPS
+        },
     }
 
 
@@ -332,6 +371,11 @@ def build_snapshot(
     path_funnel_truth = {}
     for setup, metrics in current_paths.items():
         quality = current_quality.get(setup, {})
+        rejected_reasons = {
+            stage.replace("geometry:final_live:rejected_reason:", ""): int(count or 0)
+            for stage, count in metrics.items()
+            if stage.startswith("geometry:final_live:rejected_reason:")
+        }
         path_funnel_truth[setup] = {
             "attempts": int(metrics.get("evaluator_attempted", 0)),
             "no_signal": int(metrics.get("evaluator_no_signal", 0)),
@@ -339,6 +383,10 @@ def build_snapshot(
             "scanner_preparation": int(metrics.get("scanner_preparation", 0)),
             "gated": int(metrics.get("gated", 0)),
             "emitted": int(metrics.get("emitted", 0)),
+            "geometry_final_preserved": int(metrics.get("geometry:final_live:preserved", 0)),
+            "geometry_final_changed": int(metrics.get("geometry:final_live:changed", 0)),
+            "geometry_final_rejected": int(metrics.get("geometry:final_live:rejected", 0)),
+            "geometry_rejected_reasons": rejected_reasons,
             "classification": classify_path(metrics, quality),
         }
 
@@ -423,6 +471,28 @@ def build_snapshot(
             "most_promising_healthy_path": healthiest[0] if healthiest else None,
             "most_likely_bottleneck": likely_bottlenecks[0] if likely_bottlenecks else None,
             "suggested_next_investigation_target": recommended_target,
+        },
+        "post_correction_focus": {
+            setup: {
+                "attempts": int(path_funnel_truth.get(setup, {}).get("attempts", 0)),
+                "generated": int(path_funnel_truth.get(setup, {}).get("generated", 0)),
+                "emitted": int(path_funnel_truth.get(setup, {}).get("emitted", 0)),
+                "gated": int(path_funnel_truth.get(setup, {}).get("gated", 0)),
+                "classification": path_funnel_truth.get(setup, {}).get("classification", "low-sample"),
+                "win_rate": float(current_quality.get(setup, {}).get("win_rate", 0.0)),
+                "sl_rate": float(current_quality.get(setup, {}).get("sl_rate", 0.0)),
+                "tp_rate": float(current_quality.get(setup, {}).get("tp_rate", 0.0)),
+                "average_pnl_pct": current_quality.get(setup, {}).get("average_pnl_pct"),
+                "median_first_breach_sec": current_quality.get(setup, {}).get("median_first_breach_sec"),
+                "median_terminal_duration_sec": current_quality.get(setup, {}).get("median_terminal_duration_sec"),
+                "geometry_final_preserved": int(path_funnel_truth.get(setup, {}).get("geometry_final_preserved", 0)),
+                "geometry_final_changed": int(path_funnel_truth.get(setup, {}).get("geometry_final_changed", 0)),
+                "geometry_final_rejected": int(path_funnel_truth.get(setup, {}).get("geometry_final_rejected", 0)),
+                "geometry_rejected_reasons": path_funnel_truth.get(setup, {}).get(
+                    "geometry_rejected_reasons", {}
+                ),
+            }
+            for setup in _POST_CORRECTION_TARGET_SETUPS
         },
     }
 
@@ -511,6 +581,36 @@ def format_truth_report_markdown(snapshot: Dict[str, Any], comparison: Dict[str,
             )
         )
 
+    lines.extend(
+        [
+            "",
+            "## Post-correction focus (PR #193 / PR #194)",
+            "| Setup | Attempts | Generated | Emitted | Gated | Win rate | SL rate | Median first breach (s) | Median terminal (s) | Geometry preserved | Geometry changed | Geometry rejected |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for setup, metrics in snapshot.get("post_correction_focus", {}).items():
+        lines.append(
+            "| {setup} | {attempts} | {generated} | {emitted} | {gated} | {win_rate} | {sl_rate} | {mfb} | {mtd} | {gp} | {gc} | {gr} |".format(
+                setup=setup,
+                attempts=metrics.get("attempts", 0),
+                generated=metrics.get("generated", 0),
+                emitted=metrics.get("emitted", 0),
+                gated=metrics.get("gated", 0),
+                win_rate=metrics.get("win_rate", 0.0),
+                sl_rate=metrics.get("sl_rate", 0.0),
+                mfb=metrics.get("median_first_breach_sec"),
+                mtd=metrics.get("median_terminal_duration_sec"),
+                gp=metrics.get("geometry_final_preserved", 0),
+                gc=metrics.get("geometry_final_changed", 0),
+                gr=metrics.get("geometry_final_rejected", 0),
+            )
+        )
+        if metrics.get("geometry_rejected_reasons"):
+            lines.append(
+                f"  - `{setup}` geometry rejected reasons: `{json.dumps(metrics.get('geometry_rejected_reasons', {}), sort_keys=True)}`"
+            )
+
     lines.extend(["", "## Window-over-window comparison"])
     if comparison.get("enabled"):
         lines.extend(
@@ -520,6 +620,7 @@ def format_truth_report_markdown(snapshot: Dict[str, Any], comparison: Dict[str,
                 f"- No-generation Δ: `{comparison.get('no_generation_delta')}`",
                 f"- Fast failures Δ: `{comparison.get('fast_failures_delta')}`",
                 f"- Quality changes: `{json.dumps(comparison.get('quality_changes', {}), sort_keys=True)}`",
+                f"- Post-correction setup deltas: `{json.dumps(comparison.get('post_correction_window_delta', {}), sort_keys=True)}`",
             ]
         )
     else:
