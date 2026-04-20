@@ -460,6 +460,13 @@ _PR13_GOVERNANCE_DISABLED_REVIEW_SETUPS: frozenset[str] = frozenset({
     "OPENING_RANGE_BREAKOUT",
 })
 _EVAL_PATH_PREFIX = "EVAL::"
+_DEPENDENCY_ABSENCE_REASON_TOKENS: frozenset[str] = frozenset({
+    "missing_funding_rate",
+    "missing_cvd",
+    "missing_recent_ticks",
+    "missing_order_book",
+    "missing_liquidation_clusters",
+})
 
 
 def _normalize_candle_dict(cd: dict) -> dict:
@@ -1830,6 +1837,39 @@ class Scanner:
             tolerance_pct=SMC_SCALP_TOLERANCE_PCT,
         )
         smc_data = smc_result.as_dict()
+        dependency_source_state: Dict[str, str] = {}
+        _recent_ticks = smc_data.get("recent_ticks")
+        if _recent_ticks is None:
+            _recent_ticks = self.data_store.ticks.get(symbol, [])[-100:]
+            dependency_source_state["recent_ticks"] = "unavailable" if not _recent_ticks else "populated"
+        else:
+            dependency_source_state["recent_ticks"] = "populated" if _recent_ticks else "empty"
+        smc_data["recent_ticks"] = _recent_ticks
+
+        _orderblocks = smc_data.get("orderblocks")
+        if _orderblocks is None:
+            dependency_source_state["orderblocks"] = "unavailable"
+            _orderblocks = []
+        else:
+            dependency_source_state["orderblocks"] = "populated" if _orderblocks else "empty"
+        smc_data["orderblocks"] = _orderblocks
+
+        _order_book = smc_data.get("order_book")
+        if _order_book is None:
+            dependency_source_state["order_book"] = "unavailable"
+        elif isinstance(_order_book, dict) and ((_order_book.get("bids") or []) and (_order_book.get("asks") or [])):
+            dependency_source_state["order_book"] = "populated"
+        else:
+            dependency_source_state["order_book"] = "empty"
+        smc_data["order_book"] = _order_book
+
+        _liq_clusters = smc_data.get("liquidation_clusters")
+        if _liq_clusters is None:
+            dependency_source_state["liquidation_clusters"] = "unavailable"
+            _liq_clusters = []
+        else:
+            dependency_source_state["liquidation_clusters"] = "populated" if _liq_clusters else "empty"
+        smc_data["liquidation_clusters"] = _liq_clusters
         # Attach per-pair profile so channel evaluators can consume it via
         # smc_data.get("pair_profile") without any signature changes.
         smc_data["pair_profile"] = classify_pair_tier(symbol, volume_24h_usd=volume_24h)
@@ -1905,12 +1945,22 @@ class Scanner:
             smc_data["funding_rate"] = _fr
             _cvd_arr = self.order_flow_store.get_cvd_history(symbol)
             smc_data["cvd"] = _cvd_arr.tolist() if len(_cvd_arr) > 0 else None
+            dependency_source_state["funding_rate"] = "populated" if _fr is not None else "empty"
+            dependency_source_state["cvd"] = "populated" if len(_cvd_arr) > 0 else "empty"
             log.debug(
                 "{} smc_data: funding_rate={}, cvd_candles={}",
                 symbol,
                 _fr,
                 len(_cvd_arr),
             )
+        else:
+            dependency_source_state["funding_rate"] = "unavailable"
+            dependency_source_state["cvd"] = "unavailable"
+        dependency_source_state["oi_snapshot"] = (
+            "unavailable" if self.order_flow_store is None else "empty"
+        )
+        smc_data["__dependency_source_state"] = dependency_source_state
+        smc_data["__dependency_state"] = self._build_dependency_readiness(symbol, smc_data)
 
         return ScanContext(
             candles=candles,
@@ -2171,6 +2221,105 @@ class Scanner:
     def _increment_path_funnel(self, stage: str, chan_name: str, setup_class_name: Any) -> None:
         self._path_funnel_counters[self._path_funnel_key(stage, chan_name, setup_class_name)] += 1
 
+    @staticmethod
+    def _dependency_count_bucket(value: int) -> str:
+        if value <= 0:
+            return "none"
+        if value <= 3:
+            return "few"
+        if value <= 20:
+            return "some"
+        return "many"
+
+    def _build_dependency_readiness(self, symbol: str, smc_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        source_state_map = smc_data.get("__dependency_source_state")
+        if not isinstance(source_state_map, dict):
+            source_state_map = {}
+
+        def _state(name: str, count: int, unavailable: bool = False) -> str:
+            if unavailable:
+                return "unavailable"
+            if count <= 0:
+                return "empty"
+            return "populated"
+
+        funding_rate = smc_data.get("funding_rate")
+        cvd_data = smc_data.get("cvd")
+        cvd_count = len(cvd_data) if isinstance(cvd_data, list) else 0
+        recent_ticks = smc_data.get("recent_ticks") or []
+        orderblocks = smc_data.get("orderblocks") or []
+        order_book = smc_data.get("order_book")
+        liq_clusters = smc_data.get("liquidation_clusters") or []
+        oi_points = 0
+        if self.order_flow_store is not None:
+            oi_points = len(getattr(self.order_flow_store, "_oi", {}).get(symbol, []))
+        order_book_levels = 0
+        if isinstance(order_book, dict):
+            bids = order_book.get("bids") or []
+            asks = order_book.get("asks") or []
+            order_book_levels = min(len(bids), len(asks))
+        oi_state = _state("oi_snapshot", oi_points, unavailable=self.order_flow_store is None)
+        return {
+            "funding_rate": {
+                "state": source_state_map.get("funding_rate", _state("funding_rate", 1 if funding_rate is not None else 0)),
+                "present": source_state_map.get("funding_rate", "unavailable") != "unavailable",
+                "bucket": self._dependency_count_bucket(1 if funding_rate is not None else 0),
+            },
+            "cvd": {
+                "state": source_state_map.get("cvd", _state("cvd", cvd_count)),
+                "present": source_state_map.get("cvd", "unavailable") != "unavailable",
+                "count": cvd_count,
+                "bucket": self._dependency_count_bucket(cvd_count),
+            },
+            "recent_ticks": {
+                "state": source_state_map.get("recent_ticks", _state("recent_ticks", len(recent_ticks))),
+                "present": source_state_map.get("recent_ticks", "unavailable") != "unavailable",
+                "count": len(recent_ticks),
+                "bucket": self._dependency_count_bucket(len(recent_ticks)),
+            },
+            "orderblocks": {
+                "state": source_state_map.get("orderblocks", _state("orderblocks", len(orderblocks))),
+                "present": source_state_map.get("orderblocks", "unavailable") != "unavailable",
+                "count": len(orderblocks),
+                "bucket": self._dependency_count_bucket(len(orderblocks)),
+            },
+            "order_book": {
+                "state": source_state_map.get("order_book", _state("order_book", order_book_levels)),
+                "present": source_state_map.get("order_book", "unavailable") != "unavailable",
+                "count": order_book_levels,
+                "bucket": self._dependency_count_bucket(order_book_levels),
+            },
+            "liquidation_clusters": {
+                "state": source_state_map.get("liquidation_clusters", _state("liquidation_clusters", len(liq_clusters))),
+                "present": source_state_map.get("liquidation_clusters", "unavailable") != "unavailable",
+                "count": len(liq_clusters),
+                "bucket": self._dependency_count_bucket(len(liq_clusters)),
+            },
+            "oi_snapshot": {
+                "state": "populated" if oi_points > 0 else oi_state,
+                "present": oi_state != "unavailable",
+                "count": oi_points,
+                "bucket": self._dependency_count_bucket(oi_points),
+            },
+        }
+
+    def _record_dependency_readiness(self, chan_name: str, smc_data: Dict[str, Any]) -> None:
+        _dep_state = smc_data.get("__dependency_state")
+        if not isinstance(_dep_state, dict):
+            return
+        for _dep_name, _details in _dep_state.items():
+            if not isinstance(_details, dict):
+                continue
+            _present = bool(_details.get("present"))
+            _presence = "present" if _present else "absent"
+            self._channel_funnel_counters[f"dependency_presence:{chan_name}:{_dep_name}:{_presence}"] += 1
+            _state = str(_details.get("state") or "").strip()
+            if _state in {"unavailable", "empty", "populated"}:
+                self._channel_funnel_counters[f"dependency_state:{chan_name}:{_dep_name}:{_state}"] += 1
+            _bucket = str(_details.get("bucket") or "").strip()
+            if _bucket:
+                self._channel_funnel_counters[f"dependency_bucket:{chan_name}:{_dep_name}:{_bucket}"] += 1
+
     def _record_scalp_generation_telemetry(self, chan: Any, chan_name: str) -> None:
         if chan_name != "360_SCALP":
             return
@@ -2205,6 +2354,22 @@ class Scanner:
                     _path_name, _reason = str(_reason_key), "unknown"
                 _normalized_path = self._normalize_setup_class(_path_name)
                 _normalized_reason = self._metric_token(_reason)
+                _eval_path_key = f"{_EVAL_PATH_PREFIX}{_normalized_path}"
+                self._path_funnel_counters[
+                    self._path_funnel_key(
+                        f"evaluator_no_signal_reason:{_normalized_reason}",
+                        chan_name,
+                        _eval_path_key,
+                    )
+                ] += _n
+                if _normalized_reason in _DEPENDENCY_ABSENCE_REASON_TOKENS:
+                    self._path_funnel_counters[
+                        self._path_funnel_key(
+                            f"dependency_missing:{_normalized_reason}",
+                            chan_name,
+                            _eval_path_key,
+                        )
+                    ] += _n
                 self._channel_funnel_counters[
                     f"evaluator_no_signal_reason:{chan_name}:{_normalized_path}:{_normalized_reason}"
                 ] += _n
@@ -3954,7 +4119,16 @@ class Scanner:
                         # so evaluators see funding_rate and cvd regardless of which
                         # channel-specific SMC re-detect path is taken.
                         # Only carry over when the key was set (i.e. order_flow_store present).
-                        for _of_key in ("funding_rate", "cvd"):
+                        for _of_key in (
+                            "funding_rate",
+                            "cvd",
+                            "recent_ticks",
+                            "orderblocks",
+                            "order_book",
+                            "liquidation_clusters",
+                            "__dependency_source_state",
+                            "__dependency_state",
+                        ):
                             if _of_key in ctx.smc_data:
                                 _new_smc_data[_of_key] = ctx.smc_data[_of_key]
                         _smc_cache[_cache_key] = (_smc_r, _new_smc_data)
@@ -3969,6 +4143,7 @@ class Scanner:
             else:
                 ctx_for_chan = ctx
 
+            self._record_dependency_readiness(chan_name, ctx_for_chan.smc_data)
             if chan_name == "360_SCALP":
                 # ScalpChannel.evaluate() returns List[Signal] — every valid candidate
                 # is processed independently through the gate chain.  Same-direction
