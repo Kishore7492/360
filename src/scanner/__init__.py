@@ -2962,7 +2962,7 @@ class Scanner:
         self._suppression_counters[
             f"predictive_revalidation_triggered:{chan_name}:{_setup_family}"
         ] += 1
-        valid, reason = validate_geometry_against_policy(
+        valid, reason, policy_scope = validate_geometry_against_policy(
             signal=sig,
             setup=setup.setup_class,
             channel=chan_name,
@@ -2985,6 +2985,10 @@ class Scanner:
         self._suppression_counters[
             f"geometry_rejected_final:{chan_name}:{_setup_family}:{reason}"
         ] += 1
+        if policy_scope is not None:
+            self._suppression_counters[
+                f"geometry_rejected_final_policy:{chan_name}:{_setup_family}:{policy_scope}"
+            ] += 1
         self._suppression_counters[
             f"geometry_preserved_final:{chan_name}:{_setup_family}"
         ] += 1
@@ -2995,6 +2999,12 @@ class Scanner:
             chan_name,
             _setup_class_name,
         )
+        if policy_scope is not None:
+            self._increment_path_funnel(
+                f"geometry:final_live:rejected_policy:{policy_scope}",
+                chan_name,
+                _setup_class_name,
+            )
         log.warning(
             "Predictive geometry rejected for {} {} ({}): reverted to validated plan",
             symbol,
@@ -3529,12 +3539,24 @@ class Scanner:
             self._suppression_counters[
                 f"geometry_rejected_risk_plan_reason:{chan_name}:{_setup_family}:{_reason_token}"
             ] += 1
+            if risk.reason == "protected_structural_sl_cap_exceeded_reject_not_compress":
+                _policy_scope = str(getattr(risk, "sl_cap_policy_scope", "channel") or "channel")
+                self._suppression_counters[
+                    f"geometry_rejected_risk_plan_policy:{chan_name}:{_setup_family}:{_policy_scope}"
+                ] += 1
             self._increment_path_funnel("geometry:risk_plan:rejected", chan_name, _setup_class_name)
             self._increment_path_funnel(
                 f"geometry:risk_plan:rejected_reason:{_reason_token}",
                 chan_name,
                 _setup_class_name,
             )
+            if risk.reason == "protected_structural_sl_cap_exceeded_reject_not_compress":
+                _policy_scope = str(getattr(risk, "sl_cap_policy_scope", "channel") or "channel")
+                self._increment_path_funnel(
+                    f"geometry:risk_plan:rejected_policy:{_policy_scope}",
+                    chan_name,
+                    _setup_class_name,
+                )
             return _reject("gated", None)
         _eval_geom = self._capture_geometry(sig)
         _risk_geom = (
@@ -3556,6 +3578,7 @@ class Scanner:
                     original_stop_loss=_eval_sl,
                     final_stop_loss=_risk_geom[0],
                     channel=chan_name,
+                    setup=setup.setup_class,
                 ):
                     self._suppression_counters[
                         f"geometry_capped_risk_plan:{chan_name}:{_setup_family}"
