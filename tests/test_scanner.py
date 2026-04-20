@@ -1015,8 +1015,7 @@ class TestRegimeStabilityTracker:
         scanner = _make_scanner()
         ctx = MagicMock()
         ctx.pair_quality.passed = True
-        ctx.market_state = MagicMock()
-        ctx.market_state.__eq__ = lambda self, other: False
+        ctx.market_state = MarketState.CLEAN_RANGE
         ctx.regime_result.regime.value = "RANGING"
         scanner.circuit_breaker = None
         scanner.router.active_signals = {}

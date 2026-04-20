@@ -2269,6 +2269,13 @@ class Scanner:
         return setup_family in _SCALP_RANGING_LOW_ADX_BLOCKED_FAMILIES
 
     @staticmethod
+    def _regime_name_from_ctx(ctx: ScanContext, default: str = "RANGING") -> str:
+        regime_obj = getattr(getattr(ctx, "regime_result", None), "regime", None)
+        if regime_obj is not None and hasattr(regime_obj, "value"):
+            return str(regime_obj.value)
+        return default
+
+    @staticmethod
     def _normalize_setup_class(setup_class: Any) -> str:
         if isinstance(setup_class, str):
             return setup_class or "UNKNOWN"
@@ -3116,12 +3123,7 @@ class Scanner:
             and ctx.is_ranging
             and ctx.adx_val < _RANGING_ADX_SUPPRESS_THRESHOLD
         ):
-            _regime_obj = getattr(getattr(ctx, "regime_result", None), "regime", None)
-            _regime_name = (
-                _regime_obj.value
-                if _regime_obj is not None and hasattr(_regime_obj, "value")
-                else "RANGING"
-            )
+            _regime_name = self._regime_name_from_ctx(ctx, default="RANGING")
             if self._is_scalp_family_blocked_in_ranging_low_adx(_setup_family):
                 self._suppression_counters[f"ranging_low_adx:{chan_name}"] += 1
                 self._suppression_counters[
