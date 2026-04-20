@@ -157,11 +157,12 @@ def test_parse_path_funnel_from_logs_handles_stage_tokens_with_colons() -> None:
 def test_parse_channel_funnel_from_logs_extracts_dependency_metrics_for_channel() -> None:
     logs = "\n".join(
         [
-            "Path funnel (last 100 cycles): path={} channel={'dependency_presence:360_SCALP:cvd:absent': 4, 'dependency_bucket:360_SCALP:cvd:none': 4, 'dependency_presence:360_SWING:cvd:present': 2}",
+            "Path funnel (last 100 cycles): path={} channel={'dependency_presence:360_SCALP:cvd:absent': 4, 'dependency_state:360_SCALP:cvd:unavailable': 4, 'dependency_bucket:360_SCALP:cvd:none': 4, 'dependency_presence:360_SWING:cvd:present': 2}",
         ]
     )
     parsed = parse_channel_funnel_from_logs(logs, "360_SCALP")
     assert parsed["dependency_presence:360_SCALP:cvd:absent"] == 4
+    assert parsed["dependency_state:360_SCALP:cvd:unavailable"] == 4
     assert parsed["dependency_bucket:360_SCALP:cvd:none"] == 4
     assert "dependency_presence:360_SWING:cvd:present" not in parsed
 
@@ -249,7 +250,8 @@ def test_build_snapshot_classifies_dependency_missing_and_emits_readiness() -> N
     }
     current_channel_funnel = {
         "dependency_presence:360_SCALP:funding_rate:absent": 5,
-        "dependency_bucket:360_SCALP:funding_rate:absent": 5,
+        "dependency_state:360_SCALP:funding_rate:unavailable": 5,
+        "dependency_bucket:360_SCALP:funding_rate:none": 5,
     }
     snapshot, _ = build_snapshot(
         channel="360_SCALP",
@@ -272,3 +274,5 @@ def test_build_snapshot_classifies_dependency_missing_and_emits_readiness() -> N
     assert metrics["no_signal_reasons"]["missing_funding_rate"] == 6
     assert metrics["dependency_missing_reasons"]["missing_funding_rate"] == 6
     assert snapshot["dependency_readiness"]["funding_rate"]["presence"]["absent"] == 5
+    assert snapshot["dependency_readiness"]["funding_rate"]["states"]["unavailable"] == 5
+    assert snapshot["dependency_readiness"]["funding_rate"]["buckets"]["none"] == 5

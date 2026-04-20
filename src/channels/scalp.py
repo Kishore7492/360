@@ -902,7 +902,7 @@ class ScalpChannel(BaseChannel):
         close_now = float(closes[-1])
         close_3ago = float(closes[-4])
         if close_3ago <= 0:
-            return self._reject("cascade_not_detected")
+            return self._reject("cascade_threshold_not_met")
         cascade_pct = (close_now - close_3ago) / close_3ago * 100.0
 
         if cascade_pct <= -2.0:
@@ -912,7 +912,7 @@ class ScalpChannel(BaseChannel):
             cascade_direction = Direction.LONG   # Price rose — potential SHORT reversal
             reversal_direction = Direction.SHORT
         else:
-            return self._reject("cascade_not_detected")
+            return self._reject("cascade_threshold_not_met")
 
         # 2. CVD divergence: price moving one way, CVD moving opposite
         cvd_data = smc_data.get("cvd")
@@ -928,10 +928,10 @@ class ScalpChannel(BaseChannel):
 
         # For LONG reversal: price fell but CVD is rising (buyers absorbing)
         if reversal_direction == Direction.LONG and cvd_change <= 0:
-            return None
+            return self._reject("cvd_divergence_failed")
         # For SHORT reversal: price rose but CVD is falling (sellers absorbing)
         if reversal_direction == Direction.SHORT and cvd_change >= 0:
-            return None
+            return self._reject("cvd_divergence_failed")
 
         ind = indicators.get("5m", {})
         rsi_val = ind.get("rsi_last")
@@ -1094,7 +1094,7 @@ class ScalpChannel(BaseChannel):
 
         total_vol = buy_vol + sell_vol
         if total_vol < _WHALE_MIN_TICK_VOLUME_USD:
-            return self._reject("missing_recent_ticks")
+            return self._reject("recent_ticks_insufficient")
 
         if buy_vol >= sell_vol * _WHALE_DELTA_MIN_RATIO:
             direction = Direction.LONG
@@ -1149,7 +1149,7 @@ class ScalpChannel(BaseChannel):
             bid_depth = sum(float(b[1]) * float(b[0]) for b in bids[:10])
             ask_depth = sum(float(a[1]) * float(a[0]) for a in asks[:10])
             if bid_depth <= 0 or ask_depth <= 0:
-                return self._reject("missing_order_book")
+                return self._reject("order_book_insufficient")
             imbalance_ratio = (
                 bid_depth / ask_depth if direction == Direction.LONG else ask_depth / bid_depth
             )
@@ -1159,7 +1159,7 @@ class ScalpChannel(BaseChannel):
                 # Marginal OBI in a fast regime: soft penalty, not hard reject
                 obi_penalty = 8.0
             else:
-                return self._reject("missing_order_book")
+                return self._reject("order_book_imbalance_failed")
 
         atr_val = indicators.get("1m", {}).get("atr_last", close * 0.002)
 
@@ -1961,17 +1961,17 @@ class ScalpChannel(BaseChannel):
             direction = Direction.SHORT
             level = prior_swing_low
         else:
-            return self._reject("breakout_not_found")
+            return self._reject("flip_close_not_confirmed")
 
         # Retest proximity gate — layered zone system replacing the original hard-0.3% gate.
         # Premium zone (0–0.3% from flipped level) → no soft penalty.
         # Extended zone (0.3%–0.6%) → +3.0 soft penalty (messier but valid retest).
         # Hard block beyond 0.6% — price has not genuinely returned to the structural level.
         if level <= 0:
-            return self._reject("retest_proximity_failed")
+            return self._reject("retest_out_of_zone")
         dist_from_level_pct = abs(close - level) / level
         if dist_from_level_pct > 0.006:
-            return self._reject("retest_proximity_failed")
+            return self._reject("retest_out_of_zone")
         retest_in_premium_zone = dist_from_level_pct <= 0.003
         proximity_penalty = 0.0 if retest_in_premium_zone else 3.0
 
@@ -1989,36 +1989,36 @@ class ScalpChannel(BaseChannel):
         # weak immediate-touch entries do not pass on a single tap.
         if direction == Direction.LONG:
             if prev_close <= level:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
             if close <= level * 1.0005:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
             if last_low > level * 1.0045:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
         else:
             if prev_close >= level:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
             if close >= level * 0.9995:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
             if last_high < level * 0.9955:
-                return self._reject("reclaim_confirmation_failed")
+                return self._reject("reclaim_hold_failed")
 
         candle_body = abs(close - last_open)
         candle_range = max(last_high - last_low, 0.0)
         if candle_range <= 0:
-            return self._reject("reclaim_confirmation_failed")
+            return self._reject("wick_quality_failed")
         if candle_body / candle_range < 0.12:
-            return self._reject("reclaim_confirmation_failed")
+            return self._reject("wick_quality_failed")
         wick_penalty = 0.0
         if direction == Direction.LONG:
             lower_wick = last_open - last_low if last_open > last_low else close - last_low
             if lower_wick < 0.2 * candle_body:
-                return None  # No meaningful rejection at support
+                return self._reject("wick_quality_failed")
             if lower_wick < 0.5 * candle_body:
                 wick_penalty = 4.0  # Borderline rejection — apply soft penalty
         else:
             upper_wick = last_high - last_open if last_high > last_open else last_high - close
             if upper_wick < 0.2 * candle_body:
-                return None  # No meaningful rejection at resistance
+                return self._reject("wick_quality_failed")
             if upper_wick < 0.5 * candle_body:
                 wick_penalty = 4.0  # Borderline rejection — apply soft penalty
 
@@ -2240,7 +2240,7 @@ class ScalpChannel(BaseChannel):
             if rsi_prev is not None and rsi_last is not None and rsi_last <= rsi_prev:
                 return self._reject("momentum_reject")
             if cvd_change is not None and cvd_change <= 0:
-                return self._reject("missing_cvd")
+                return self._reject("cvd_divergence_failed")
             direction = Direction.LONG
         # SHORT signal: deeply positive funding → shorts being discounted
         elif funding_rate > FUNDING_RATE_EXTREME_THRESHOLD:
@@ -2251,7 +2251,7 @@ class ScalpChannel(BaseChannel):
             if rsi_prev is not None and rsi_last is not None and rsi_last >= rsi_prev:
                 return self._reject("momentum_reject")
             if cvd_change is not None and cvd_change >= 0:
-                return self._reject("missing_cvd")
+                return self._reject("cvd_divergence_failed")
             direction = Direction.SHORT
         else:
             return self._reject("funding_not_extreme")
@@ -2548,7 +2548,7 @@ class ScalpChannel(BaseChannel):
             # Bullish CVD divergence: price makes lower low but CVD makes higher low
             # (buyers absorbing selling pressure — continuation signal in uptrend)
             if not (price_low_late < price_low_early and cvd_low_late > cvd_low_early):
-                return self._reject("momentum_reject")
+                return self._reject("cvd_divergence_failed")
             # Divergence magnitude: how far price pulled back that CVD absorbed.
             # Normalised so a 3 % price drop = strength 1.0; capped at 1.0.
             _price_drop_pct = (price_low_early - price_low_late) / price_low_early if price_low_early > 0 else 0.0
@@ -2562,7 +2562,7 @@ class ScalpChannel(BaseChannel):
             # Bearish CVD divergence: price makes higher high but CVD makes lower high
             # (sellers absorbing buying pressure — continuation signal in downtrend)
             if not (price_high_late > price_high_early and cvd_high_late < cvd_high_early):
-                return self._reject("momentum_reject")
+                return self._reject("cvd_divergence_failed")
             _price_rise_pct = (price_high_late - price_high_early) / price_high_early if price_high_early > 0 else 0.0
             _div_strength = min(1.0, _price_rise_pct / 0.03)
             _div_label = "BEARISH"
@@ -2786,7 +2786,7 @@ class ScalpChannel(BaseChannel):
         # then recovered — confirming a liquidity grab rather than a break).
         sweeps = smc_data.get("sweeps", [])
         if not sweeps:
-            return self._reject("missing_sweeps")
+            return self._reject("sweeps_not_detected")
 
         trend_sweep = None
         for sweep in sweeps:
@@ -2794,13 +2794,13 @@ class ScalpChannel(BaseChannel):
                 trend_sweep = sweep
                 break
         if trend_sweep is None:
-            return self._reject("missing_sweeps")
+            return self._reject("sweeps_not_detected")
 
         # Sweep recency gate: sweep must be within the last _CLS_SWEEP_WINDOW
         # closed candles.  Staleer sweeps lose their structural relevance.
         sweep_index = getattr(trend_sweep, "index", None)
         if sweep_index is None or sweep_index < -_CLS_SWEEP_WINDOW:
-            return self._reject("missing_sweeps")
+            return self._reject("sweeps_not_detected")
 
         # Sweep level extraction
         sweep_level: Optional[float] = None
@@ -2810,7 +2810,7 @@ class ScalpChannel(BaseChannel):
                 sweep_level = float(v)
                 break
         if sweep_level is None or sweep_level <= 0:
-            return self._reject("missing_sweeps")
+            return self._reject("sweeps_not_detected")
 
         # Reclaim confirmation: current price must already be beyond the swept
         # level in the trend direction.  This is the defining gate that separates
@@ -3049,7 +3049,7 @@ class ScalpChannel(BaseChannel):
 
         close = float(closes_raw[-1])
         if close <= 0:
-            return self._reject("breakout_not_found")
+            return self._reject("auction_not_detected")
 
         # ADX gate: trend strength required for displacement to be valid
         profile = smc_data.get("pair_profile")
@@ -3376,16 +3376,16 @@ class ScalpChannel(BaseChannel):
         struct_end = n - 1 - _FAR_AUCTION_WINDOW_MAX   # exclusive end
         struct_start = max(0, struct_end - _FAR_STRUCT_LOOKBACK)
         if struct_end <= struct_start:
-            return self._reject("breakout_not_found")
+            return self._reject("auction_not_detected")
 
         struct_highs = [float(highs_raw[i]) for i in range(struct_start, struct_end)]
         struct_lows = [float(lows_raw[i]) for i in range(struct_start, struct_end)]
         if not struct_highs or not struct_lows:
-            return self._reject("breakout_not_found")
+            return self._reject("auction_not_detected")
         struct_high = max(struct_highs)
         struct_low = min(struct_lows)
         if struct_high <= struct_low:
-            return self._reject("breakout_not_found")
+            return self._reject("auction_not_detected")
 
         # ── Failed-auction candle search ─────────────────────────────────
         # Scan the auction window (1 to _FAR_AUCTION_WINDOW_MAX bars back).
@@ -3428,7 +3428,7 @@ class ScalpChannel(BaseChannel):
 
         # Determine which direction (if any) has a valid auction
         if long_auction is None and short_auction is None:
-            return self._reject("breakout_not_found")
+            return self._reject("auction_not_detected")
 
         # Prefer the auction whose reference level is currently reclaimed.
         # If both fire simultaneously (rare) prefer whichever reclaim is larger.
@@ -3463,7 +3463,7 @@ class ScalpChannel(BaseChannel):
                     reclaim_level = ref_high
 
         if direction is None:
-            return self._reject("reclaim_confirmation_failed")
+            return self._reject("reclaim_hold_failed")
 
         # ── RSI layered gate ─────────────────────────────────────────────
         # More conservative thresholds than PDC because FAR is a reversal-of-

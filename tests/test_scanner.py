@@ -1583,6 +1583,31 @@ class TestMTFGateInScanner:
             "dependency_missing:missing_funding_rate:360_SCALP:other:EVAL::FUNDING_EXTREME"
         ] == 2
 
+    def test_dependency_readiness_telemetry_keeps_presence_bucket_state_semantics(self):
+        scanner, _signal_queue = self._scanner_and_queue()
+        scanner._record_dependency_readiness("360_SCALP", {
+            "__dependency_state": {
+                "funding_rate": {
+                    "present": False,
+                    "state": "unavailable",
+                    "bucket": "none",
+                }
+            }
+        })
+
+        assert scanner._channel_funnel_counters[
+            "dependency_presence:360_SCALP:funding_rate:absent"
+        ] == 1
+        assert scanner._channel_funnel_counters[
+            "dependency_state:360_SCALP:funding_rate:unavailable"
+        ] == 1
+        assert scanner._channel_funnel_counters[
+            "dependency_bucket:360_SCALP:funding_rate:none"
+        ] == 1
+        assert scanner._channel_funnel_counters[
+            "dependency_bucket:360_SCALP:funding_rate:absent"
+        ] == 0
+
     @pytest.mark.asyncio
     async def test_path_funnel_tracks_scored_filtered_and_emitted(self):
         scanner, signal_queue = self._scanner_and_queue()

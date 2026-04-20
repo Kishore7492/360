@@ -507,11 +507,15 @@ def build_snapshot(
     for key, count in current_channel_funnel.items():
         if key.startswith(f"dependency_presence:{channel}:"):
             _, _, dep, state = key.split(":", 3)
-            dep_bucket = dependency_readiness.setdefault(dep, {"presence": {}, "buckets": {}})
+            dep_bucket = dependency_readiness.setdefault(dep, {"presence": {}, "states": {}, "buckets": {}})
             dep_bucket["presence"][state] = dep_bucket["presence"].get(state, 0) + int(count or 0)
+        elif key.startswith(f"dependency_state:{channel}:"):
+            _, _, dep, state = key.split(":", 3)
+            dep_bucket = dependency_readiness.setdefault(dep, {"presence": {}, "states": {}, "buckets": {}})
+            dep_bucket["states"][state] = dep_bucket["states"].get(state, 0) + int(count or 0)
         elif key.startswith(f"dependency_bucket:{channel}:"):
             _, _, dep, bucket = key.split(":", 3)
-            dep_bucket = dependency_readiness.setdefault(dep, {"presence": {}, "buckets": {}})
+            dep_bucket = dependency_readiness.setdefault(dep, {"presence": {}, "states": {}, "buckets": {}})
             dep_bucket["buckets"][bucket] = dep_bucket["buckets"].get(bucket, 0) + int(count or 0)
 
     snapshot = {
@@ -635,10 +639,12 @@ def format_truth_report_markdown(snapshot: Dict[str, Any], comparison: Dict[str,
     dependency_readiness = snapshot.get("dependency_readiness", {}) or {}
     for dep_name, dep_metrics in sorted(dependency_readiness.items()):
         presence = dep_metrics.get("presence", {})
+        states = dep_metrics.get("states", {})
         buckets = dep_metrics.get("buckets", {})
         presence_text = ", ".join(f"{k}={v}" for k, v in sorted(presence.items())) or "none"
+        state_text = ", ".join(f"{k}={v}" for k, v in sorted(states.items())) or "none"
         bucket_text = ", ".join(f"{k}={v}" for k, v in sorted(buckets.items())) or "none"
-        lines.append(f"- {dep_name}: presence[{presence_text}] buckets[{bucket_text}]")
+        lines.append(f"- {dep_name}: presence[{presence_text}] state[{state_text}] buckets[{bucket_text}]")
 
     lines.extend(
         [
