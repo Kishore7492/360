@@ -1544,29 +1544,29 @@ class ScalpChannel(BaseChannel):
 
         m5 = candles.get("5m")
         if m5 is None or len(m5.get("close", [])) < 28:
-            return None
+            return self._reject("insufficient_candles")
 
         closes = m5.get("close", [])
         lows = m5.get("low", [])
         highs = m5.get("high", [])
         volumes = m5.get("volume", [])
         if len(closes) < 28 or len(lows) < 28 or len(volumes) < 10:
-            return None
+            return self._reject("insufficient_candles")
 
         if not self._pass_basic_filters(spread_pct, volume_24h_usd, regime=regime):
-            return None
+            return self._reject("basic_filters_failed")
 
         # Rolling 7-candle average (last 7 complete candles, not current)
         rolling_vols = [float(v) for v in volumes[-8:-1]]
         if len(rolling_vols) < 7 or sum(rolling_vols) <= 0:
-            return None
+            return self._reject("volume_spike_missing")
         rolling_avg = sum(rolling_vols) / len(rolling_vols)
 
         # Current 5m candle volume ≥ SURGE_VOLUME_MULTIPLIER × rolling average
         # (use current candle volume to confirm active surge, same units as rolling_avg)
         current_vol = float(volumes[-1]) if len(volumes) >= 1 else 0.0
         if current_vol < SURGE_VOLUME_MULTIPLIER * rolling_avg:
-            return None
+            return self._reject("volume_spike_missing")
 
         # Swing low: 20-candle lookback from before the 5-candle breakdown search window.
         # Excluding the search window ensures swing_low is set by genuine prior support,
@@ -1576,7 +1576,7 @@ class ScalpChannel(BaseChannel):
         # The search iterates indices -2, -3, -4, -5, -6 (newest-first within the window).
         swing_low_level = min(float(l) for l in lows[-26:-6])
         if swing_low_level <= 0:
-            return None
+            return self._reject("breakout_not_found")
 
         # Find the most recent breakdown candle within the last 5 closed candles.
         # Scans newest-first (i = -2, -3, -4, -5, -6) to prefer the candle
@@ -1590,7 +1590,7 @@ class ScalpChannel(BaseChannel):
                 break
 
         if breakdown_candle_idx is None:
-            return None
+            return self._reject("breakout_not_found")
 
         # Dead-cat bounce zone: current close is above the swing low (bounce from breakdown).
         # Lower bound: 0.1% ensures a genuine micro-bounce has occurred above the broken
@@ -1602,10 +1602,10 @@ class ScalpChannel(BaseChannel):
         # Extended zone (0.1%–0.3% and 0.6%–0.75%) applies a soft penalty.
         close = float(closes[-1])
         if close <= 0:
-            return None
+            return self._reject("retest_proximity_failed")
         dist_from_swing_pct = (close - swing_low_level) / swing_low_level * 100.0
         if not (0.1 <= dist_from_swing_pct <= 0.75):
-            return None
+            return self._reject("retest_proximity_failed")
         bounce_in_premium_zone = (0.3 <= dist_from_swing_pct <= 0.6)
         bounce_penalty = 0.0 if bounce_in_premium_zone else 3.0
 
@@ -1614,7 +1614,7 @@ class ScalpChannel(BaseChannel):
         ema9 = ind.get("ema9_last")
         ema21 = ind.get("ema21_last")
         if ema9 is None or ema21 is None or ema9 >= ema21:
-            return None
+            return self._reject("ema_alignment_reject")
 
         # RSI — layered soft/hard gate replacing the previous hard gate of 28–55.
         # Hard block below 20 (full capitulation, no tradeable dead-cat bounce) or
@@ -1625,7 +1625,7 @@ class ScalpChannel(BaseChannel):
         rsi_penalty = 0.0
         if rsi_val is not None:
             if rsi_val < 20.0 or rsi_val > 68.0:
-                return None
+                return self._reject("rsi_reject")
             elif not (28.0 <= rsi_val <= 55.0):
                 rsi_penalty = 5.0
 
@@ -1638,19 +1638,19 @@ class ScalpChannel(BaseChannel):
         fvg_penalty = 0.0
         if not has_smc_context:
             if regime_upper not in _FAST_BEARISH_REGIMES:
-                return None  # Hard gate in non-fast regimes (behaviour unchanged)
+                return self._reject("missing_fvg_or_orderblock")  # Hard gate in non-fast regimes (behaviour unchanged)
             fvg_penalty = 8.0  # Soft penalty in fast regimes instead of hard block
 
         # Breakdown candle volume ≥ 2.0 × rolling average (unchanged quality threshold;
         # now checks the actual breakdown candle's volume rather than always volumes[-3]).
         if breakdown_vol < 2.0 * rolling_avg:
-            return None
+            return self._reject("volume_spike_missing")
 
         # Method-specific SL/TP
         sl = swing_low_level * (1 + 0.008)  # 0.8% above breakdown level
         sl_dist = abs(close - sl)
         if sl_dist <= 0 or sl <= close:
-            return None
+            return self._reject("invalid_sl_geometry")
 
         # TP: measured move downward projection (window aligned with swing low window)
         base_of_range = max(float(h) for h in highs[-26:-6]) if len(highs) >= 26 else close * 1.02
@@ -1683,7 +1683,7 @@ class ScalpChannel(BaseChannel):
             pair_tier=profile.tier if profile else "MIDCAP",
         )
         if sig is None:
-            return None
+            return self._reject("build_signal_failed")
 
         # Override with method-specific structural SL and measured-move TPs
         sig.stop_loss = round(sl, 8)

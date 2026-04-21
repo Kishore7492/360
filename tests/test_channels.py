@@ -908,6 +908,14 @@ class TestBreakdownShortRefinements:
             "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime=regime,
         )
 
+    @staticmethod
+    def _assert_breakdown_reason(telemetry, reason):
+        reasons = telemetry["no_signal_reason"]
+        assert (
+            reasons.get(f"BREAKDOWN_SHORT:{reason}", 0) == 1
+            or reasons.get(f"BRKDN:{reason}", 0) == 1
+        )
+
     # ── Happy path ────────────────────────────────────────────────────────
 
     def test_signal_fires_on_valid_breakdown_at_minus3(self):
@@ -1094,6 +1102,30 @@ class TestBreakdownShortRefinements:
         candles = {"5m": m5}
         sig = self._call(candles, _breakdown_indicators(), _breakdown_smc())
         assert sig is None
+
+    def test_breakdown_short_telemetry_insufficient_candles(self):
+        ch = ScalpChannel()
+        candles = {"5m": _make_breakdown_candles(n=27, breakdown_offset=3)}
+        indicators = {"5m": _make_indicators()}
+        ch.evaluate("BTCUSDT", candles, indicators, {}, 0.01, 10_000_000, regime="TRENDING_DOWN")
+        telemetry = ch.consume_generation_telemetry()
+        self._assert_breakdown_reason(telemetry, "insufficient_candles")
+
+    def test_breakdown_short_telemetry_ema_alignment(self):
+        ch = ScalpChannel()
+        candles = {"5m": _make_breakdown_candles(n=60, breakdown_offset=3)}
+        indicators = _breakdown_indicators(ema9=101.0, ema21=100.0)
+        ch.evaluate("BTCUSDT", candles, indicators, _breakdown_smc(), 0.01, 10_000_000, regime="TRENDING_DOWN")
+        telemetry = ch.consume_generation_telemetry()
+        self._assert_breakdown_reason(telemetry, "ema_alignment_reject")
+
+    def test_breakdown_short_telemetry_rsi_reject(self):
+        ch = ScalpChannel()
+        candles = {"5m": _make_breakdown_candles(n=60, breakdown_offset=3)}
+        indicators = _breakdown_indicators(rsi_val=19.0)
+        ch.evaluate("BTCUSDT", candles, indicators, _breakdown_smc(), 0.01, 10_000_000, regime="TRENDING_DOWN")
+        telemetry = ch.consume_generation_telemetry()
+        self._assert_breakdown_reason(telemetry, "rsi_reject")
 
     # ── SL/TP geometry ───────────────────────────────────────────────────
 
