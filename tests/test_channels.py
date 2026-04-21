@@ -32,6 +32,81 @@ def _make_indicators(adx_val=30, atr_val=0.5, ema9=101, ema21=100, ema200=95,
     }
 
 
+def _make_qcb_inputs(*, direction: Direction, close: float = 100.0, atr_last: float = 0.4):
+    candles = {
+        "5m": {
+            "open": [close] * 25,
+            "high": [close + 0.2] * 25,
+            "low": [close - 0.2] * 25,
+            "close": [close] * 25,
+            "volume": [100.0] * 24 + [250.0],
+        }
+    }
+    if direction == Direction.LONG:
+        indicators = {
+            "5m": _make_indicators(
+                atr_val=atr_last,
+                rsi_val=55,
+                bb_upper=99.8,
+                bb_lower=98.8,
+            )
+        }
+        indicators["5m"]["macd_histogram_last"] = 0.1
+        indicators["5m"]["macd_histogram_prev"] = -0.1
+    else:
+        indicators = {
+            "5m": _make_indicators(
+                atr_val=atr_last,
+                rsi_val=45,
+                bb_upper=101.2,
+                bb_lower=100.2,
+            )
+        }
+        indicators["5m"]["macd_histogram_last"] = -0.1
+        indicators["5m"]["macd_histogram_prev"] = 0.1
+
+    smc_data = {"fvg": [{"gap_high": close + 0.5, "gap_low": close - 0.5}]}
+    return candles, indicators, smc_data
+
+
+class TestQuietCompressionBreakStopLoss:
+    def test_qcb_sl_uses_atr_floor_long(self):
+        ch = ScalpChannel()
+        candles, indicators, smc_data = _make_qcb_inputs(direction=Direction.LONG)
+        sig = ch._evaluate_quiet_compression_break(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="QUIET"
+        )
+        assert sig is not None
+        close = float(candles["5m"]["close"][-1])
+        bb_lower = float(indicators["5m"]["bb_lower_last"])
+        assert sig.stop_loss < bb_lower
+        assert sig.stop_loss <= close * (1 - 0.003)
+
+    def test_qcb_sl_uses_atr_floor_short(self):
+        ch = ScalpChannel()
+        candles, indicators, smc_data = _make_qcb_inputs(direction=Direction.SHORT)
+        sig = ch._evaluate_quiet_compression_break(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="QUIET"
+        )
+        assert sig is not None
+        close = float(candles["5m"]["close"][-1])
+        bb_upper = float(indicators["5m"]["bb_upper_last"])
+        assert sig.stop_loss > bb_upper
+        assert sig.stop_loss >= close * (1 + 0.003)
+
+    def test_qcb_sl_wider_than_old_buffer(self):
+        ch = ScalpChannel()
+        candles, indicators, smc_data = _make_qcb_inputs(
+            direction=Direction.LONG, close=100.0, atr_last=0.4
+        )
+        sig = ch._evaluate_quiet_compression_break(
+            "BTCUSDT", candles, indicators, smc_data, 0.01, 10_000_000, regime="QUIET"
+        )
+        assert sig is not None
+        sl_dist = abs(sig.entry - sig.stop_loss)
+        assert sl_dist > sig.entry * 0.001
+
+
 class TestScalpChannel:
     def test_signal_generated_on_valid_conditions(self):
         ch = ScalpChannel()
