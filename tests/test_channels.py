@@ -144,7 +144,7 @@ class TestScalpChannel:
 
     def test_standard_telemetry_insufficient_candles_reason(self):
         ch = ScalpChannel()
-        candles = {"5m": _make_candles(49)}
+        candles = {"5m": _make_candles(30)}
         sig = ch._evaluate_standard("BTCUSDT", candles, {"5m": _make_indicators()}, {}, 0.01, 10_000_000)
         assert sig is None
         assert ch._active_no_signal_reason == "insufficient_candles"
@@ -160,7 +160,7 @@ class TestScalpChannel:
     def test_standard_telemetry_missing_sweeps_reason(self):
         ch = ScalpChannel()
         candles = {"5m": _make_candles(60)}
-        indicators = {"5m": _make_indicators(adx_val=30, mom=0.5, ema9=101, ema21=100)}
+        indicators = {"5m": _make_indicators(adx_val=30)}
         sig = ch._evaluate_standard("BTCUSDT", candles, indicators, {"sweeps": []}, 0.01, 10_000_000)
         assert sig is None
         assert ch._active_no_signal_reason == "sweeps_not_detected"
