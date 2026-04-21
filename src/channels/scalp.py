@@ -3576,11 +3576,11 @@ class ScalpChannel(BaseChannel):
             return self._reject("invalid_sl_geometry")
 
         if direction == Direction.LONG:
-            tp1 = max(close + tail * 1.0, close + sl_dist * _FAR_MIN_RR)
+            tp1 = max(close + tail, close + sl_dist * _FAR_MIN_RR)
             tp2 = close + tail * 1.5
             tp3 = close + tail * 2.5
         else:
-            tp1 = min(close - tail * 1.0, close - sl_dist * _FAR_MIN_RR)
+            tp1 = min(close - tail, close - sl_dist * _FAR_MIN_RR)
             tp2 = close - tail * 1.5
             tp3 = close - tail * 2.5
 
