@@ -224,6 +224,9 @@ def test_scalp_channel_tracks_exception_non_generation_reason(monkeypatch):
     def _raise_boom(*args, **kwargs):
         raise RuntimeError("boom")
 
+    def _return_none(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(ch, "_evaluate_standard", _raise_boom)
     for method_name in (
         "_evaluate_trend_pullback",
@@ -240,7 +243,7 @@ def test_scalp_channel_tracks_exception_non_generation_reason(monkeypatch):
         "_evaluate_post_displacement_continuation",
         "_evaluate_failed_auction_reclaim",
     ):
-        monkeypatch.setattr(ch, method_name, lambda *args, **kwargs: None)
+        monkeypatch.setattr(ch, method_name, _return_none)
 
     sigs = ch.evaluate(
         "BTCUSDT",
@@ -256,6 +259,7 @@ def test_scalp_channel_tracks_exception_non_generation_reason(monkeypatch):
     assert telemetry["attempts"]["STANDARD"] == 1
     assert telemetry["no_signal"]["STANDARD"] == 1
     assert telemetry["no_signal_reason"]["STANDARD:exception"] == 1
+    assert sum(telemetry["attempts"].values()) == 14
     assert telemetry["attempts"]["FUNDING_EXTREME"] == 1
     assert telemetry["no_signal_reason"]["FUNDING_EXTREME:none"] == 1
 
