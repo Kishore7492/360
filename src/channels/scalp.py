@@ -2463,11 +2463,17 @@ class ScalpChannel(BaseChannel):
         if not (fvgs or orderblocks):
             return None
 
+        atr_val = ind.get("atr_last", close * 0.002)
+
         # SL and TP
         if direction == Direction.LONG:
-            sl = bb_lower * (1 - 0.001)
+            sl_from_bb = bb_lower - atr_val * 0.5
+            sl_from_pct = close * (1 - 0.003)
+            sl = min(sl_from_bb, sl_from_pct)
         else:
-            sl = bb_upper * (1 + 0.001)
+            sl_from_bb = bb_upper + atr_val * 0.5
+            sl_from_pct = close * (1 + 0.003)
+            sl = max(sl_from_bb, sl_from_pct)
 
         sl_dist = abs(close - sl)
         if sl_dist <= 0:
@@ -2493,7 +2499,6 @@ class ScalpChannel(BaseChannel):
             tp3 = close + sl_dist * 4.0 if direction == Direction.LONG else close - sl_dist * 4.0
 
         profile = smc_data.get("pair_profile")
-        atr_val = ind.get("atr_last", close * 0.002)
         _regime_ctx = smc_data.get("regime_context")
         sig = build_channel_signal(
             config=self.config,
