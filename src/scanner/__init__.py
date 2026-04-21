@@ -4120,10 +4120,12 @@ class Scanner:
             reason: str,
             threshold: float,
         ) -> None:
+            """Emit confidence-gate telemetry counters and structured decision logs."""
             self._suppression_counters[
                 f"confidence_gate:{decision}:{chan_name}:{_setup_family}:{reason}"
             ] += 1
-            _raw_conf = float(getattr(sig, "pre_ai_confidence", sig.confidence))
+            _raw_conf_src = getattr(sig, "pre_ai_confidence", None)
+            _raw_conf = float(_raw_conf_src) if _raw_conf_src is not None else float("nan")
             _composite_conf = (
                 float(_composite_score_before_penalty)
                 if _composite_score_before_penalty is not None
@@ -4226,11 +4228,16 @@ class Scanner:
                         symbol, chan_name, _new_count, _CONF_FAIL_COOLDOWN_S,
                     )
                 return _reject("filtered", cross_verified)
+        # Reclassify after all post-score confidence adjustments (stat filter, pair-analysis
+        # penalties, transition boost) so WATCHLIST/floor decisions use current confidence.
         sig.signal_tier = classify_signal_tier(sig.confidence)
         # WATCHLIST tier: signals with confidence 50-64 are kept as WATCHLIST
         # instead of being discarded.  Only the SCALP channel family generates
         # watchlist alerts; SWING and SPOT require higher confidence.
         _watchlist_confidence = 50.0
+        _market_component_floor = 12.0
+        _execution_component_floor = 10.0
+        _risk_component_floor = 10.0
         if (
             sig.signal_tier == "WATCHLIST"
             and chan_name in _SCALP_CHANNELS
@@ -4247,21 +4254,21 @@ class Scanner:
             return sig, cross_verified
         if (
             sig.confidence < min_conf
-            or sig.component_scores.get("market", 0.0) < 12.0
-            or sig.component_scores.get("execution", 0.0) < 10.0
-            or sig.component_scores.get("risk", 0.0) < 10.0
+            or sig.component_scores.get("market", 0.0) < _market_component_floor
+            or sig.component_scores.get("execution", 0.0) < _execution_component_floor
+            or sig.component_scores.get("risk", 0.0) < _risk_component_floor
         ):
             _reason = "min_confidence"
             _threshold = float(min_conf)
-            if sig.component_scores.get("market", 0.0) < 12.0:
+            if sig.component_scores.get("market", 0.0) < _market_component_floor:
                 _reason = "market_component_floor"
-                _threshold = 12.0
-            elif sig.component_scores.get("execution", 0.0) < 10.0:
+                _threshold = _market_component_floor
+            elif sig.component_scores.get("execution", 0.0) < _execution_component_floor:
                 _reason = "execution_component_floor"
-                _threshold = 10.0
-            elif sig.component_scores.get("risk", 0.0) < 10.0:
+                _threshold = _execution_component_floor
+            elif sig.component_scores.get("risk", 0.0) < _risk_component_floor:
                 _reason = "risk_component_floor"
-                _threshold = 10.0
+                _threshold = _risk_component_floor
             _record_confidence_gate_decision(
                 decision="filtered",
                 reason=_reason,
