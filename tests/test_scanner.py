@@ -93,6 +93,8 @@ def _make_scan_ready_scanner(
         as_dict=lambda: {
             "sweeps": [SimpleNamespace(direction=Direction.LONG, sweep_level=95.0)],
             "fvg": [],
+            "orderblocks": [],
+            "orderblocks_detector_status": "not_implemented",
             "mss": SimpleNamespace(direction=Direction.LONG, midpoint=98.0),
         },
     )
@@ -2839,6 +2841,38 @@ class TestArch3ScanContextWiring:
         dep_state = captured_smc[0]["__dependency_state"]["order_book"]
         assert dep_state["source"] == "book_ticker"
         assert dep_state["quality"] == "top_of_book_only"
+
+    @pytest.mark.asyncio
+    async def test_orderblocks_trace_wired_into_smc_data(self):
+        """Scanner preserves orderblock producer trace metadata in smc_data."""
+        captured_smc: list = []
+
+        channel = MagicMock()
+        channel.config = SimpleNamespace(name="360_SCALP", min_confidence=10.0)
+
+        def capture_and_return(**kwargs):
+            captured_smc.append(kwargs.get("smc_data", {}))
+            return []
+
+        channel.evaluate.side_effect = capture_and_return
+        signal_queue = MagicMock()
+        signal_queue.put = AsyncMock(return_value=True)
+        scanner = _make_scan_ready_scanner(channel=channel, signal_queue=signal_queue)
+
+        with _common_gate_patches(scanner):
+            await scanner._scan_symbol("BTCUSDT", 10_000_000)
+
+        assert len(captured_smc) >= 1
+        assert captured_smc[0].get("orderblocks") == []
+        assert captured_smc[0]["__dependency_source_state"]["orderblocks"] == "empty"
+        trace = captured_smc[0]["__orderblocks_trace"]
+        assert trace["detector_key_present"] is True
+        assert trace["detector_status"] == "not_implemented"
+        assert trace["detector_count"] == 0
+        assert trace["scanner_source_state"] == "empty"
+        assert trace["scanner_final_count"] == 0
+        dep_state = captured_smc[0]["__dependency_state"]["orderblocks"]
+        assert dep_state["source"] == "not_implemented"
 
     @pytest.mark.asyncio
     async def test_no_wiring_when_order_flow_store_absent(self):

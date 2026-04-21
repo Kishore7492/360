@@ -1884,13 +1884,33 @@ class Scanner:
             dependency_source_state["recent_ticks"] = "populated" if _recent_ticks else "empty"
         smc_data["recent_ticks"] = _recent_ticks
 
+        _orderblocks_key_present = "orderblocks" in smc_data
         _orderblocks = smc_data.get("orderblocks")
+        _orderblocks_detector_status = str(
+            smc_data.get("orderblocks_detector_status") or "unknown"
+        ).strip().lower()
         if _orderblocks is None:
             dependency_source_state["orderblocks"] = "unavailable"
             _orderblocks = []
         else:
             dependency_source_state["orderblocks"] = "populated" if _orderblocks else "empty"
         smc_data["orderblocks"] = _orderblocks
+        smc_data["__orderblocks_trace"] = {
+            "detector_key_present": _orderblocks_key_present,
+            "detector_status": _orderblocks_detector_status,
+            "detector_count": len(_orderblocks),
+            "scanner_source_state": dependency_source_state["orderblocks"],
+            "scanner_final_count": len(_orderblocks),
+        }
+        log.debug(
+            "{} orderblocks trace: detector_key_present={}, detector_status={}, detector_count={}, scanner_state={}, scanner_count={}",
+            symbol,
+            _orderblocks_key_present,
+            _orderblocks_detector_status,
+            len(_orderblocks),
+            dependency_source_state["orderblocks"],
+            len(_orderblocks),
+        )
 
         _order_book = smc_data.get("order_book")
         if _order_book is None:
@@ -2316,6 +2336,12 @@ class Scanner:
         cvd_count = len(cvd_data) if isinstance(cvd_data, list) else 0
         recent_ticks = smc_data.get("recent_ticks") or []
         orderblocks = smc_data.get("orderblocks") or []
+        orderblock_trace = smc_data.get("__orderblocks_trace")
+        orderblocks_source = "unknown"
+        if isinstance(orderblock_trace, dict):
+            _source = str(orderblock_trace.get("detector_status") or "").strip().lower()
+            if _source:
+                orderblocks_source = _source
         order_book = smc_data.get("order_book")
         liq_clusters = smc_data.get("liquidation_clusters") or []
         oi_points = 0
@@ -2366,6 +2392,7 @@ class Scanner:
                 "present": source_state_map.get("orderblocks", "unavailable") != "unavailable",
                 "count": len(orderblocks),
                 "bucket": self._dependency_count_bucket(len(orderblocks)),
+                "source": orderblocks_source,
             },
             "order_book": {
                 "state": source_state_map.get("order_book", _state("order_book", order_book_levels)),
@@ -4259,6 +4286,12 @@ class Scanner:
                             smc_timeframes=_ch_tfs,
                         )
                         _new_smc_data = _smc_r.as_dict()
+                        _redetect_orderblocks = _new_smc_data.get("orderblocks")
+                        _redetect_count = (
+                            len(_redetect_orderblocks)
+                            if isinstance(_redetect_orderblocks, list)
+                            else 0
+                        )
                         # Carry over metadata fields added by _build_scan_context()
                         # that are not part of the SMCResult dataclass.
                         _new_smc_data["pair_profile"] = ctx.smc_data.get("pair_profile")
@@ -4272,6 +4305,8 @@ class Scanner:
                             "cvd",
                             "recent_ticks",
                             "orderblocks",
+                            "orderblocks_detector_status",
+                            "__orderblocks_trace",
                             "order_book",
                             "liquidation_clusters",
                             "__dependency_source_state",
@@ -4279,6 +4314,20 @@ class Scanner:
                         ):
                             if _of_key in ctx.smc_data:
                                 _new_smc_data[_of_key] = ctx.smc_data[_of_key]
+                        _handoff_orderblocks = _new_smc_data.get("orderblocks")
+                        _handoff_count = (
+                            len(_handoff_orderblocks)
+                            if isinstance(_handoff_orderblocks, list)
+                            else 0
+                        )
+                        if _handoff_count != _redetect_count:
+                            log.debug(
+                                "{} {} orderblocks handoff override: redetect_count={}, handoff_count={}",
+                                symbol,
+                                chan_name,
+                                _redetect_count,
+                                _handoff_count,
+                            )
                         _smc_cache[_cache_key] = (_smc_r, _new_smc_data)
                         ctx_for_chan = _dc.replace(
                             ctx,
