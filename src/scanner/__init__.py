@@ -1885,7 +1885,13 @@ class Scanner:
         smc_data["recent_ticks"] = _recent_ticks
 
         _orderblocks_key_present = "orderblocks" in smc_data
-        _orderblocks = smc_data.get("orderblocks")
+        _raw_detector_orderblocks = smc_data.get("orderblocks")
+        _detector_orderblocks_count = (
+            len(_raw_detector_orderblocks)
+            if isinstance(_raw_detector_orderblocks, list)
+            else 0
+        )
+        _orderblocks = _raw_detector_orderblocks
         _orderblocks_detector_status = str(
             smc_data.get("orderblocks_detector_status") or "unknown"
         ).strip().lower()
@@ -1899,7 +1905,7 @@ class Scanner:
         smc_data["__orderblocks_trace"] = {
             "detector_key_present": _orderblocks_key_present,
             "detector_status": _orderblocks_detector_status,
-            "detector_count": _scanner_orderblocks_count,
+            "detector_count": _detector_orderblocks_count,
             "scanner_source_state": dependency_source_state["orderblocks"],
             "scanner_final_count": _scanner_orderblocks_count,
         }
@@ -1908,7 +1914,7 @@ class Scanner:
             symbol,
             _orderblocks_key_present,
             _orderblocks_detector_status,
-            _scanner_orderblocks_count,
+            _detector_orderblocks_count,
             dependency_source_state["orderblocks"],
             _scanner_orderblocks_count,
         )
