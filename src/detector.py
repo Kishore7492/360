@@ -41,6 +41,8 @@ class SMCResult:
     sweeps: List[LiquiditySweep] = field(default_factory=list)
     mss: Optional[MSSSignal] = None
     fvg: List[FVGZone] = field(default_factory=list)
+    orderblocks: List[Dict[str, Any]] = field(default_factory=list)
+    orderblocks_detector_status: str = "not_implemented"
     whale_alert: Optional[WhaleAlert] = None
     volume_delta_spike: bool = False
     recent_ticks: List[Dict[str, Any]] = field(default_factory=list)
@@ -55,6 +57,8 @@ class SMCResult:
             "sweeps": self.sweeps,
             "mss": self.mss,
             "fvg": self.fvg,
+            "orderblocks": self.orderblocks,
+            "orderblocks_detector_status": self.orderblocks_detector_status,
             "whale_alert": self.whale_alert,
             "volume_delta_spike": self.volume_delta_spike,
             "recent_ticks": self.recent_ticks,
