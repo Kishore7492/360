@@ -1893,7 +1893,7 @@ class Scanner:
         )
         _orderblocks = _raw_detector_orderblocks
         _orderblocks_detector_status = str(
-            smc_data.get("orderblocks_detector_status") or "unknown"
+            smc_data.get("orderblocks_detector_status") or "not_implemented"
         ).strip().lower()
         if _orderblocks is None:
             dependency_source_state["orderblocks"] = "unavailable"
@@ -2346,7 +2346,7 @@ class Scanner:
         orderblock_trace = smc_data.get("__orderblocks_trace")
         orderblocks_source = "unknown"
         if isinstance(orderblock_trace, dict):
-            _trace_status = str(orderblock_trace.get("detector_status") or "").strip().lower()
+            _trace_status = str(orderblock_trace.get("detector_status") or "not_set").strip().lower()
             if _trace_status:
                 orderblocks_source = _trace_status
         order_book = smc_data.get("order_book")

@@ -2843,7 +2843,7 @@ class TestArch3ScanContextWiring:
         assert dep_state["quality"] == "top_of_book_only"
 
     @pytest.mark.asyncio
-    async def test_orderblocks_trace_wired_into_smc_data(self):
+    async def test_orderblocks_trace_metadata_propagation(self):
         """Scanner preserves orderblock producer trace metadata in smc_data."""
         captured_smc: list = []
 
