@@ -18,8 +18,6 @@ Test surface:
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
 from src.channels.scalp import ScalpChannel
@@ -102,10 +100,10 @@ def _make_indicators_long(
 
 def _extract_strength(reason: str) -> float:
     """Extract divergence strength from analyst_reason text."""
-    match = re.search(r"strength=([0-9]*\.?[0-9]+)", reason)
-    if not match:
+    marker = " CVD divergence (strength="
+    if marker not in reason or not reason.endswith(")"):
         raise AssertionError(f"Expected strength marker in analyst_reason, got {reason!r}")
-    return float(match.group(1))
+    return float(reason.split(marker, 1)[1][:-1])
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +164,9 @@ class TestEvaluatorPropagation:
         """A larger price drop produces a higher divergence strength."""
         # Close = 100; dip to ~97 → ~3% drop → strength ≈ 1.0
         sig_big, _ = self._run_long(close=100.0)
-        if sig_big is None or not sig_big.analyst_reason:
+        if sig_big is None:
             pytest.skip("Big-dip signal did not fire — cannot test magnitude")
+        assert sig_big.analyst_reason is not None
         # Smaller dip: build a candle set with only a 1.5% dip
         channel = ScalpChannel()
         close_small = 100.0
@@ -194,8 +193,7 @@ class TestEvaluatorPropagation:
         )
         if sig_s is None:
             pytest.skip("Small-dip signal did not fire — skipping magnitude comparison")
-        if not sig_s.analyst_reason:
-            pytest.skip("Small-dip analyst_reason missing — cannot test magnitude")
+        assert sig_s.analyst_reason is not None
         big_strength = _extract_strength(sig_big.analyst_reason)
         small_strength = _extract_strength(sig_s.analyst_reason)
         assert big_strength >= small_strength, (
