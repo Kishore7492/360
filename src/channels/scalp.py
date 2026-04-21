@@ -2833,7 +2833,7 @@ class ScalpChannel(BaseChannel):
             return self._reject("sweeps_not_detected")
 
         # Sweep recency gate: sweep must be within the last _CLS_SWEEP_WINDOW
-        # closed candles.  Staleer sweeps lose their structural relevance.
+        # closed candles.  Staler sweeps lose their structural relevance.
         sweep_index = getattr(trend_sweep, "index", None)
         if sweep_index is None:
             return self._reject("sweep_index_missing")
