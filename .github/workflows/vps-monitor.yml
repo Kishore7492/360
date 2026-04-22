@@ -204,6 +204,8 @@ jobs:
         run: |
           set -euo pipefail
           git fetch origin monitor-logs:refs/remotes/origin/monitor-logs 2>/dev/null || true
+          # Remove untracked generated files so checkout isn't blocked
+          git clean -fd monitor/report/ 2>/dev/null || true
           if git ls-remote --exit-code --heads origin monitor-logs > /dev/null 2>&1; then
             git checkout -B monitor-logs origin/monitor-logs
           else
