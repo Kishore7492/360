@@ -611,6 +611,29 @@ class TestSignalRouter:
 
         assert sent_messages == []
 
+    @pytest.mark.asyncio
+    async def test_successful_dispatch_writes_dispatch_log(self, queue, router, sent_messages, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        sig = _make_signal(confidence=90)
+        sig.signal_id = "TEST-DISPATCH-LOG"
+
+        await queue.put(sig)
+        task = asyncio.create_task(router.start())
+        await asyncio.sleep(0.2)
+        await router.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        dispatch_log_path = tmp_path / "data" / "dispatch_log.json"
+        assert dispatch_log_path.exists()
+        payload = json.loads(dispatch_log_path.read_text(encoding="utf-8"))
+        assert isinstance(payload, list)
+        assert payload[-1]["signal_id"] == "TEST-DISPATCH-LOG"
+        assert payload[-1]["telegram_text"] == sent_messages[-1][1]
+
 
 def _make_mock_redis(stored: dict):
     """Build a fake RedisClient that stores/retrieves from `stored` dict."""
