@@ -45,6 +45,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def _timestamp_sort_key(record: object) -> tuple[int, float | str]:
+    """Return sortable timestamp tuple: (priority_rank, parsed_timestamp_or_raw).
+
+    Priority 2: valid numeric/ISO timestamp.
+    Priority 1: unparseable timestamp string.
+    Priority 0: missing/invalid timestamp field.
+    """
     if not isinstance(record, dict):
         return (0, "")
     ts = record.get("timestamp")
@@ -74,8 +80,8 @@ def main() -> int:
     records = load_json_file(Path(args.performance_json), default=[])
     if not isinstance(records, list):
         records = []
-    last_100_records = sorted(records, key=_timestamp_sort_key)[-100:]
-    _write_json(args.signals_last100_json, last_100_records)
+    latest_100_records = sorted(records, key=_timestamp_sort_key)[-100:]
+    _write_json(args.signals_last100_json, latest_100_records)
 
     dispatch_log: list = []
     if args.dispatch_log_json:

@@ -1,9 +1,12 @@
 import json
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_build_truth_report_writes_signals_last100_and_dispatch_log(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    script_path = repo_root / "scripts" / "build_truth_report.py"
     runtime_health = tmp_path / "runtime_health.json"
     heartbeat = tmp_path / "heartbeat.txt"
     performance = tmp_path / "signal_performance.json"
@@ -32,7 +35,7 @@ def test_build_truth_report_writes_signals_last100_and_dispatch_log(tmp_path):
     subprocess.run(
         [
             sys.executable,
-            "/home/runner/work/360-v2/360-v2/scripts/build_truth_report.py",
+            str(script_path),
             "--runtime-health-json", str(runtime_health),
             "--heartbeat-text", str(heartbeat),
             "--performance-json", str(performance),

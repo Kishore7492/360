@@ -619,7 +619,10 @@ class TestSignalRouter:
 
         await queue.put(sig)
         task = asyncio.create_task(router.start())
-        await asyncio.sleep(0.2)
+        for _ in range(30):
+            if sent_messages:
+                break
+            await asyncio.sleep(0.02)
         await router.stop()
         task.cancel()
         try:
