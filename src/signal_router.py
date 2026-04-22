@@ -479,6 +479,49 @@ class SignalRouter:
     # Processing
     # ------------------------------------------------------------------
 
+    def _write_dispatch_log(self, signal: Signal, text: str) -> None:
+        """Append a dispatch record to data/dispatch_log.json (rolling cap)."""
+        from pathlib import Path
+
+        dispatch_log_path = Path("data/dispatch_log.json")
+        dispatch_log_max = 200
+        entry = {
+            "dispatched_at": time.time(),
+            "signal_id": signal.signal_id,
+            "channel": signal.channel,
+            "symbol": signal.symbol,
+            "direction": signal.direction.value,
+            "setup_class": getattr(signal, "setup_class", None),
+            "confidence": getattr(signal, "confidence", None),
+            "signal_tier": getattr(signal, "signal_tier", None),
+            "entry": getattr(signal, "entry", None),
+            "sl": getattr(signal, "sl", getattr(signal, "stop_loss", None)),
+            "tp1": getattr(signal, "tp1", None),
+            "tp2": getattr(signal, "tp2", None),
+            "tp3": getattr(signal, "tp3", None),
+            "market_phase": getattr(signal, "market_phase", None),
+            "telegram_text": text,
+        }
+        try:
+            dispatch_log_path.parent.mkdir(parents=True, exist_ok=True)
+            existing: list = []
+            if dispatch_log_path.exists():
+                try:
+                    existing = json.loads(dispatch_log_path.read_text(encoding="utf-8"))
+                    if not isinstance(existing, list):
+                        existing = []
+                except Exception:
+                    existing = []
+            existing.append(entry)
+            if len(existing) > dispatch_log_max:
+                existing = existing[-dispatch_log_max:]
+            dispatch_log_path.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            log.debug("Failed to write dispatch log: {}", exc)
+
     async def _process(self, signal: Signal) -> None:
         # WATCHLIST signals (50-64 confidence) are preview-only per doctrine:
         # "Post to free channel only" (OWNER_BRIEF.md).  They must never enter
@@ -714,6 +757,7 @@ class SignalRouter:
                 except Exception:
                     pass  # Best-effort — don't mask the original failure
             return
+        self._write_dispatch_log(signal, text)
         log.info(
             "Signal posted → {} | {} {}",
             signal.channel,

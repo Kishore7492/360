@@ -104,6 +104,10 @@ jobs:
             > monitor/raw/signal_performance.json
 
           ssh -i ~/.ssh/vps_key -o ConnectTimeout=30 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "docker exec 360scalp-v2-engine sh -c 'cat /app/data/dispatch_log.json 2>/dev/null || echo []'" \
+            > monitor/raw/dispatch_log.json
+
+          ssh -i ~/.ssh/vps_key -o ConnectTimeout=30 "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "docker compose -f ~/360-v2/docker-compose.yml --project-directory ~/360-v2 logs --since=${LOOKBACK_HOURS}h engine" \
             > monitor/raw/engine_current.log || true
 
@@ -144,11 +148,14 @@ jobs:
             --runtime-health-json monitor/raw/runtime_health.json
             --heartbeat-text monitor/raw/heartbeat.txt
             --performance-json monitor/raw/signal_performance.json
+            --dispatch-log-json monitor/raw/dispatch_log.json
             --current-log monitor/raw/engine_current.log
             --previous-log monitor/raw/engine_previous.log
             --truth-report-md monitor/report/truth_report.md
             --truth-snapshot-json monitor/report/truth_snapshot.json
             --window-comparison-json monitor/report/window_comparison.json
+            --signals-last100-json monitor/report/signals_last100.json
+            --dispatch-log-out-json monitor/report/dispatch_log.json
           )
 
           if [ "${COMPARE_PREVIOUS_WINDOW}" = "true" ]; then
@@ -166,6 +173,8 @@ jobs:
           test -s monitor/report/truth_report.md
           test -s monitor/report/truth_snapshot.json
           test -s monitor/report/window_comparison.json
+          test -s monitor/report/signals_last100.json
+          test -s monitor/report/dispatch_log.json
 
       - name: Preserve curated outputs for branch switch
         run: |
@@ -174,6 +183,8 @@ jobs:
           cp monitor/report/truth_report.md /tmp/runtime-truth-report/truth_report.md
           cp monitor/report/truth_snapshot.json /tmp/runtime-truth-report/truth_snapshot.json
           cp monitor/report/window_comparison.json /tmp/runtime-truth-report/window_comparison.json
+          cp monitor/report/signals_last100.json /tmp/runtime-truth-report/signals_last100.json
+          cp monitor/report/dispatch_log.json /tmp/runtime-truth-report/dispatch_log.json
           cp monitor/report/truth_report.md /tmp/runtime-truth-report/latest.txt
 
       - name: Upload runtime truth artifacts
@@ -207,13 +218,16 @@ jobs:
           cp /tmp/runtime-truth-report/truth_report.md monitor/report/truth_report.md
           cp /tmp/runtime-truth-report/truth_snapshot.json monitor/report/truth_snapshot.json
           cp /tmp/runtime-truth-report/window_comparison.json monitor/report/window_comparison.json
+          cp /tmp/runtime-truth-report/signals_last100.json monitor/report/signals_last100.json
+          cp /tmp/runtime-truth-report/dispatch_log.json monitor/report/dispatch_log.json
           cp /tmp/runtime-truth-report/latest.txt monitor/latest.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add monitor/latest.txt monitor/report/truth_report.md monitor/report/truth_snapshot.json monitor/report/window_comparison.json
+          git add monitor/latest.txt monitor/report/truth_report.md monitor/report/truth_snapshot.json monitor/report/window_comparison.json monitor/report/signals_last100.json monitor/report/dispatch_log.json
           git diff --staged --quiet || git commit -m "chore: runtime truth snapshot $(date -u '+%Y-%m-%d %H:%M UTC')"
-          git push origin monitor-logs
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          git push --force origin monitor-logs
 
       - name: Clean up SSH key
         if: always()
