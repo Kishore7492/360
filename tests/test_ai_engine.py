@@ -132,7 +132,7 @@ class TestFetchNewsSentiment:
         assert result.score == pytest.approx(2 / 3, rel=1e-3)
         assert result.label == "Positive"
         assert result.summary == "BTC soars"
-        assert "coindesk.com" in result.sources
+        assert any(src == "coindesk.com" for src in result.sources)
 
     @pytest.mark.asyncio
     async def test_successful_bearish_response(self):
